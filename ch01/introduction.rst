@@ -65,10 +65,10 @@ We're going to be writing a bunch of common functions, and counting on them
 later. So now is the time to make sure they work perfectly. Let's take a
 look at what is needed, and how our "cradle" will work.
 
-  * `error(msg)` reports an error.
-
   * `abort(msg)` reports an error and ends the program by causing a
     SystemExit exception to be raised (calling 'exit').
+
+  * `error(msg)` reports an error.
 
   * `expected(what)` aborts with a message explaining that a
     particular input was expected.
@@ -80,13 +80,13 @@ look at what is needed, and how our "cradle" will work.
     stream. It returns the previous value of Peek. When the input stream is
     exhausted, returns None.
 
-  * `match(ch)` requires that the next character match its argument.
-    It advances the input by calling get_char(), and returns the result.
+  * `get_number()` returns a number.
 
   * `get_word()` returns a word - either a variable name or a
     language keyword.
 
-  * `get_number()` returns a number.
+  * `match(ch)` requires that the next character match its argument.
+    It advances the input by calling get_char(), and returns the result.
 
   * `emit(text)` writes out some text.
 
