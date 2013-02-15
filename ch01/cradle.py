@@ -49,16 +49,16 @@ def emitln(text):
 
 ##### Processing
 
-def init(in=None):
+def init(inp=None):
     pass
 
 def main():
-    print("Enter you code on a single line. Enter '.' by itself to quit.")
+    print("Enter your code on a single line. Enter '.' by itself to quit.")
     while True:
         line = input()
         if line == ".":
             break
-        init(in=StringIO(line))
+        init(inp=StringIO(line))
         compile()
 
 if __name__ == '__main__':

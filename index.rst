@@ -14,6 +14,7 @@ Contents:
 
    ch00/preface
    ch01/introduction
+   ch02/expressions
 
 Indices and tables
 ==================
