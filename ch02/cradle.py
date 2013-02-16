@@ -48,8 +48,8 @@ _Input = None
 
 Peek = None
 """
-Peek stores the input look-ahead character. This is the next character in the
-input stream, and will be returned by get_char().
+Peek stores the input look-ahead character. This is the next character
+in the input stream, and will be returned by get_char().
 
 For those with a 'C' background, using this variable avoids having to
 deal with `ungetc()` all the time.
@@ -63,7 +63,10 @@ def get_char():
     """
     global Peek
     result = Peek
-    Peek = _Input.read(1) if sys.stdin.readable() else None
+    Peek = _Input.read(1) if _Input.readable() else None
+    if Peek == '':
+        # Handle ttys and StringIO objects: still readable but empty right now.
+        Peek = None
     return result
 
 def get_number():
@@ -113,7 +116,7 @@ def init(inp=None, out=None, err=None):
     _Output = out if out is not None else sys.stdout
     _Error = err if err is not None else sys.stderr
 
-    _Input = inp if inp is not None else sys.stdin
+    _Input = inp if inp is not None else _Input
     # 'prime the pump' to read first character, etc.
     get_char()
 
