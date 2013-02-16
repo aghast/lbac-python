@@ -18,6 +18,9 @@ import pdb
 
 ##### Error handling
 
+_Error = None
+""" Error-reporting output stream.  """
+
 def abort(msg):
     """
     Report an error and raise a SystemExit exception.
@@ -27,9 +30,10 @@ def abort(msg):
 
 def error(msg):
     """
-    Report an error. Wrap the message in newlines to separate it from other output.
+    Report an error. Wrap the message in newlines to separate it from
+    other output.
     """
-    sys.stderr.write("\n" + msg + "\n")
+    _Error.write("\n" + msg + "\n")
 
 def expected(what):
     """
@@ -40,13 +44,15 @@ def expected(what):
 ##### Input handling
 
 _Input = None
+""" Input stream.  """
+
 Peek = None
 """
-Stores the input look-ahead character. This is the next character in the input
-stream, and will be returned by get_char().
+Peek stores the input look-ahead character. This is the next character in the
+input stream, and will be returned by get_char().
 
-For those with a 'C' background, using this variable avoids having to deal with
-`ungetc()` all the time.
+For those with a 'C' background, using this variable avoids having to
+deal with `ungetc()` all the time.
 """
 
 def get_char():
@@ -91,17 +97,24 @@ def match(ch):
 
 ##### Output functions
 
+_Output = None
+""" Output stream for results.  """
+
 def emit(text):
-    sys.stdout.write(text)
+    _Output.write(text)
 
 def emitln(text):
-    sys.stdout.write(text + "\n")
+    _Output.write(text + "\n")
 
 ##### Processing
 
-def init(inp=None):
-    global _Input
-    _Input = inp
+def init(inp=None, out=None, err=None):
+    global _Input, _Output, _Error
+    _Output = out if out is not None else sys.stdout
+    _Error = err if err is not None else sys.stderr
+
+    _Input = inp if inp is not None else sys.stdin
+    # 'prime the pump' to read first character, etc.
     get_char()
 
 def compile():
