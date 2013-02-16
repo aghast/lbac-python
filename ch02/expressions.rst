@@ -1,4 +1,5 @@
-.. vim: set fileencoding=utf8 tw=76
+.. vim: fileencoding=utf8 tw=76 ts=4 sw=4 et
+
 .. Let's Build a Compiler (in Python)! chapter 2 text file.
    Created Thu Feb 14 09:59:43 EST 2013, by austin.
 
@@ -34,7 +35,7 @@ The Simplest Expression
 
 The simplest expression is a single number. Let's see if we can
 recognize that. In your copy of the chapter 2 cradle, add a new definition
-for the `compile` function:
+for the `compile` function::
 
     def compile():
         expression()
@@ -42,10 +43,9 @@ for the `compile` function:
 We'll keep that throughout this chapter, since we're all about parsing
 expressions right now.
 
-Now let's parse our simple expression:
+Now let's parse our simple expression::
 
     def expression():
-        """Parse a very simple expression."""
         emitln("Result: " + get_number())
 
 Run that. You should get an output something like this::
@@ -59,15 +59,33 @@ Run that. You should get an output something like this::
     Result: 3
     .
 
-At this point, you have a working expression parser. It's not a compiler.
+At this point we have a working expression parser. It's not a compiler.
 It's not a four-function calculator. But it does parse a well-defined subset
 of mathematical expressions correctly.
 
-At this point, we have a choice. We can start working towards parsing more
-types of expressions, or we can work more towards compiling the code we have
-into some kind of runnable format. Because we're just getting started, and
-because of the first rule, [1]_ I'm going to carry on with the expression
-parsing part, and leave the code generation for later.
+We have a choice: we can start working towards parsing more types of
+expressions, or we can work more towards compiling the expressions we can
+successfully parse into some kind of runnable format. Because we're just
+getting started, and because of the first rule, [1]_ I'm going to carry on
+with the expression parsing part, and leave the code generation for later.
+
+Top-Down Parsing
+----------------
+
+The technique we are using here is a fairly "obvious" one, in the sense that
+if you sat down without reading any compiler books and thought about how to
+do this task, there's a good chance you would wind up implementing this.
+
+We are starting from a high-level aggregate name representing what we are
+trying to parse (in our case, an 'expression'), and then decomposing the
+higher-level objects into one or more sequences, each comprised of slightly
+lower-level objects. The name for this is "Top-Down Parsing." Sometimes it
+gets other names, like "Recursive Descent Parsing."
+
+A fundamental principle, which you may love or loathe, is that when a
+higher-level object is decomposed into lower-level objects, you write a
+function to represent each object (or call a function that was already
+written). Keep this in mind- we'll be doing it a lot.
 
 Binary Expressions
 ------------------
@@ -90,17 +108,27 @@ a string::
 
     def expression():
         num1 = int(get_number())
-        operator = get_char()
-        num2 = get_number()
-        fn = {
-            '+': lambda x,y: x+y,
-            '-': lambda x,y: x-y,
-            '*': lambda x,y: x*y,
-            '/': lambda x,y: x/y,
-        }[operator]
-        emitln("Result: %d" % fn(num1, num2))
+        op = get_char()
+        num2 = int(get_number())
+        if op == '+':
+                result = expr_add(num1, num2)
+        elif op == '-':
+                result = expr_subtract(num1, num2)
+        elif op == '*':
+                result = expr_multiply(num1, num2)
+        elif op == '/':
+                result = expr_divide(num1, num2)
+        emitln("Result: %d" % result)
 
-The output looks good::
+And we'll need four helper functions for the operations. Here's the divide
+function- remember that '//' is Python's "floor division" operator. Please
+add all four::
+
+    def expr_divide(num, denom):
+        return num // denom
+
+Go ahead and add all four of the helpers, and run the program. The output
+looks good::
 
     Enter your code on a single line. Enter '.' by itself to quit.
     1+7
@@ -113,41 +141,29 @@ The output looks good::
     Result: 4
     .
 
-If you have never encountered, or never used, Python's `lambda` before, it's
-one of those things that might seem complex and terrifying because of all
-the functional mumbo-jumbo surrounding it. But basically it just defines a
-quick function. Saying `lambda args: expression-with-args` is just a fast
-way of saying::
-
-    def anonymous_fn_name(args):
-        return expression-with-args
-
-Lambdas are only allowed to contain a single expression - the things we are
-now learning how to parse. Like a lot of other things, keep it simple and
-you'll keep it easy.
-
 Now, try parsing one of the single-digit expressions from our earlier
-version. It seems like our binary-expression parser is a little too
-demanding. What exactly happened, there? ::
+version::
 
     3
 
     'Number' expected.
 
-Looking at the code for `expression` we can see that the first call to
-`get_number` would return the '3' that was input. The next call, to
-`get_char` is going to get whatever is returned next - including the None
-that is returned at end of input. We don't do any kind of checking on that
-input, and that's a problem by itself. Next, though, we get another call to
-`get_number` that *does* validate its input. And that is where the error
-is coming from.
+It seems like our binary-expression parser is a little too demanding. What
+exactly happened, there? Looking at the code for `expression` we can see
+that the first call to `get_number` would return the '3' that was input. The
+next call, to `get_char` is going to get whatever is returned next -
+including the None that is returned at end of input. We don't do any kind of
+checking on that input, and that's a problem by itself. Next, though, we get
+another call to `get_number` that *does* validate its input. And that is
+where the error is coming from.
 
-There are a couple of problems, so let's try to solve them all together.
-First, our code no longer allows simple expressions. So it's time to put in
-a test suite, with some regression tests to make sure we don't "lose" any
-more behavior. And then we'll have to allow for the possibility of either
-simple single-digit expressions or more complex binary expressions. And
-finally, we'll want to test for legal operators in a more active fashion.
+There are a couple of problems, so let's try to solve them all together.  We
+"lost" some functionality that we had just a moment ago. So it's time to put
+in a test suite, with some regression tests to make sure we don't "lose"
+any more behavior. And we somehow forgot how to parse simple expressions.
+We'll have to allow for the possibility of either simple single-digit
+expressions or more complex binary expressions. Fnally, we'll want to
+test for legal operators in a more active fashion.
 
 Testing Framework
 ~~~~~~~~~~~~~~~~~
@@ -159,9 +175,9 @@ cradle_tests.py file in the tests directory. Here's my stab at it::
 
     class TestCradle(unittest.TestCase):
 
-        def assertExpr(inp, result):
+        def assertExpr(self, text, result):
             want = "Result: %d" % int(result)
-            compiler.init(StringIO(inp))
+            compiler.init(inp=StringIO(text), out=self.stdout, err=self.stderr)
             compiler.compile()
             output = self.stdout.getvalue().split("\n")[-2]
             self.assertEqual(output, want)
@@ -172,7 +188,7 @@ expr1_tests.py. Then let's write some tests::
 
     def test_add(self):
         self.assertExpr('1+8', 9)
-        self.assertExpr('7"4', 11)
+        self.assertExpr('7+4', 11)
 
     def test_subtract(self):
         self.assertExpr("8-3", 5)
@@ -188,9 +204,9 @@ expr1_tests.py. Then let's write some tests::
         self.assertExpr("6/2", 3)
 
 Run nosetests and make sure everything is working as expected. Note that in
-Python 3 the default division behavior has changed - integers return
-floating point results unless the 'floor division' operator (//) is used.
-Testing for this is important.
+Python 3 the default division behavior has changed - two integers will
+return a floating point result unless the 'floor division' operator (//) is
+used. Testing for this is important.
 
 Once you have a working set of binary expression test cases, let's go back
 and add some regression tests to handle the "simple expression" case you
@@ -212,31 +228,41 @@ code::
 Checking Every Input
 ~~~~~~~~~~~~~~~~~~~~
 
-Now we can check for a valid operator before we do anything with it::
-
-    _binop_sw = {
-        '+': lambda x,y: x+y,
-        '-': lambda x,y: x-y,
-        '*': lambda x,y: x*y,
-        '/': lambda x,y: x//y,
-    }
+Now we can check for a valid operator before we do anything with it.
+And while we're making changes, let's put the work of handling the operator,
+and the following operand, down into the helper functions::
 
     def expression():
         result = int(get_number())
-        if Peek is None:
-            return
 
-        if Peek in _binop_sw:
-            op = get_char()
-            num2 = int(get_number())
-            result = _binop_sw[op](result, num2)
-        else:
-            expected('BinOp')
+        if Peek is not None:
+            if Peek not in "+-*/":
+                expected('BinOp')
+            elif Peek == '+':
+                result = expr_add(result)
+            elif Peek == '-':
+                result = expr_subtract(result)
+            elif Peek == '*':
+                result = expr_multiply(result)
+            else:
+                result = expr_divide(result)
 
-In this version of `expression(),` the table of lambdas has been moved out
-to be a global, mainly for readability. The code now checks before calling
-`get_char` to see if there is an operator character, and if so it confirms
-that the operator is a BinOp before trying to do anything with it.
+        emitln("Result: %d" % result)
+
+    def expr_divide(num):
+        match('/')
+        num2 = int(get_number())
+        result = num // num2
+        emitln(".. computed %d // %d = %d", num, num2, result)
+        return result
+
+In this version of `expression,` we have support for both the 'simple' form
+with just a single number, and the binary form, where an operator follows
+the number. The ``Peek is not None`` test is our check for end-of-input.
+
+Each operator has a case just for it, and we don't try to do too much work
+in the `expression` function- instead we rely on the dedicated code to
+handle that.
 
 A Bug is Found
 ~~~~~~~~~~~~~~
@@ -245,8 +271,8 @@ Adding this change reduces our test failures to one. We are handling the
 simple expression case, and it looks like this code should work, but it
 turns out there is a bug in the `get_char` code - the :py:meth:`File.read`
 method is defined as being able to return an empty string in cases when no
-bytes are available for reading. This is intended for asynchronous devices -
-like a keyboard - where it makes sense to check for some input now, and
+bytes are available for reading. This is intended for asynchronous devices-
+like a keyboard- where it makes sense to check for some input now, and
 check again later in case the user types something. But for our
 :py:class:`StringIO` objects, returning an empty string means that the
 object has reached its end, and so we should consider that to mean EOF for
@@ -295,40 +321,46 @@ expression types, as needed.
 Really Long Expressions
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Sadly, however, the code only handles a single binary operator. We can't
-input a string of operations, like 1+2*4/3, and get an answer. Let's add
-a test case for multiple binary operatos::
+Sadly, the code only handles a single binary operator. We can't input a
+string of operations, like 1+2*4/3. Let's add a test case for multiple
+binary operators::
 
     def test_multiple_binops(self):
         self.assertExpr("1+2*4/3", 4)
         self.assertExpr("8-5+3/6*9", 9)
 
-This doesn't pass, because our expression parser only expects a single
-operator. We'll have to make some changes to the expression parser- adding a
-loop, in particular- to get this to work. Go ahead and put a loop in the
-expression code, to handle multiple operators::
+This doesn't pass, because `expression` expects a single operator. We'll
+have to add a loop to the expression parser to check for possibly-many
+binary operators. Go ahead and change the `if` statement to a `while`,
+so the code can keep on trucking. Note that the rest of the code is
+pretty robust, which makes it easy to change things. ::
 
     def expression():
         result = int(get_number())
-    >   while Peek is not None:
-            if Peek in _binop_sw:
-                op = get_char()
-                num2 = int(get_number())
-                result = _binop_sw[op](result, num2)
-            else:
+        while Peek is not None:
+            if Peek not in "+-*/":
                 expected('BinOp')
+            if Peek == '+':
+                result = expr_add(result)
+            elif Peek == '-':
+                result = expr_subtract(result)
+            elif Peek == '*':
+                result = expr_multiply(result)
+            else:
+                result = expr_divide(result)
+
         emitln("Result: %d" % result)
 
 Finally, with the while loop added to the mix, we have an expression parser
 that will accept an arbitrarily long string of binary operations, maintain a
 running result, and print the result at the end of the expression.
 
-But in compiler terms, it's a little too much like a desk calculator, and
-not enough like a programming language. The problem now is a lack of support
-for "operator precedence."
-
 Operator Precedence
 -------------------
+
+Sadly, in compiler terms our evaluator is too much like a desk calculator,
+and not enough like a programming language. The problem now is a lack of
+support for "operator precedence."
 
 Precedence and associativity are the properties of an operator that
 determine the specific order in which an expression containing that operator
@@ -338,17 +370,17 @@ is evaluated. For example, which of the following is correct? ::
 
     1 + 3 * 5 = 16
 
-In fact, both of them are. You just have to perform the operations in a
+In fact, both of them are- you just have to perform the operations in a
 different order. If you use a 4-function calculator to do this, you find
 that it greedily evaluates each operation as soon as possible. The result is
 that the expression is evaluated as (1+3)=4, and then (4*5)=20.
 
-On the other hand, if you follow the generally-accepted 'rules of algebra,'
+On the other hand, if you follow the generally-accepted rules of algebra,
 you evaluate the sub-expression involving multiplication first, and then do
 the addition. This resolves as (3*5)=15, and then (1+15)=16.
 
-I don't know about you, but I am very, very accustomed to counting on
-operator precedence. I think we need to have it for any serious expression
+I don't know about you, but I am accustomed to counting on operator
+precedence. I think we need to have it for any serious expression
 evaluator. So let's add a test case::
 
     def test_mul_add_precedence(self):
@@ -374,79 +406,90 @@ four different scenarios, determined by the operators:
 #. factor x factor + term
 #. factor x factor x factor
 
-And in fact, two of those we don't have to worry about at all- when the
-operators all have the same precedence, there should be no problem. So let's
-look at the cases where the precedences are different. In case #2, we know
-that the later subexpression should be resolved before we proceed. In case
-#3, we know that the earlier subexpression should be resolved before the
-later one.
+And in fact, two of those we don't have to worry about at all: when the
+operators all have the same precedence there should be no problem. So let's
+look at the two cases where the precedences are different. In case #2, we
+know that the later subexpression should be resolved before we proceed. In
+case #3, we know that the earlier subexpression should be resolved before
+the later one.
 
-So here's some pseudo-code, for use with additive operations::
+Here's some pseudo-code, for use with additive operations::
 
     def additive:
-        get a number
-        if no operator, return the number
+        get a number, set it as our result
+        if no followng operator, return the number
         read the operator
         get a number
+        DO NOTHING, in case another operator has higher precedence
         look for another operator
         if no other operator,
             return the result of the operator on the two numbers.
         if the operator is multiplicative, go resolve that first
-        else go ahead and evaluate the current operator
+        if the operator is additive,
+            set our result to the value of evaluating the prior operator
         proceed with the next operator
 
 That's...awkward, at first. But let's look at multiplicative operators.
 Here's a similar set of pseudo-code::
 
     def multiplicative:
-        get a number
-        if no operator, return the number
+        get a number, set it as our result
+        if no following operator, return our result
+        if the following operator is not multiplicative, return our result.
         read the operator
-        if the operator is not multiplicative, stop and return the number.
         get a number
-        perform the operation
-        if no operator, return the result
+        perform the operation, set our result
+        if no following operator, return our result
+        if the following operator is not multiplicative, return our result.
         read the opeator
-        if the operator is not multiplicative, stop and return the result
         get a number
-        perform the operation
+        perform the operation, set our result
         ...
 
-That code actually looks pretty clean. I can see evidence of a loop in
-there. Let's try some Python. I'll use the switching-dict idea, with the
-lambda functions, that I used before. ::
+That code actually looks pretty clean- I can see evidence of a loop in
+there. Let's try some Python::
 
     def expr_mul():
         result = int(get_number())
-        if not Peek in _mulops_sw:
+        if not Peek in "*/":
             return result
-        op = get_char()
-        num2 = int(get_number())
-        result = _mulops_sw[op](result, num2)
-        if not Peek in _mulops_sw:
+        if op == '*':
+            result = expr_multiply(result)
+        elif op == '/':
+            result = expr_divide(result)
+
+        if not Peek in "*/":
             return result
-        op = get_char()
-        num2 = int(get_number())
+        if op == '*':
+            result = expr_multiply(result)
+        elif op == '/':
+            result = expr_divide(result)
         ...
 
-And now the loop is very clear. So let's rewrite it again, with the loop::
+Two things happen: first, the usefulness of writing those helper functions
+to do all the checking and consuming becomes clear! Instead of worrying
+about what kind of operator it is, we do one simple check and then just
+delegate everything else. Sweet! Second, the loop *really* shows up in this
+version. Just like before, we convert this to use a ``while`` and we're
+done::
 
-    def expr_mul():
+    def expr_mulop():
         """
-        Handle multiplicative sub-expressions.
+        Handle multiplicative sub-expressions, with precedence.
         """
         result = int(get_number())
-        while Peek in _mulops_sw:
-            op = get_char()
-            num2 = int(get_number())
-            fn = _mulops_sw[op]
-            result = fn(result, num2)
+        while Peek is not None and Peek in "*/":
+            if Peek == '*':
+                result = expr_multiply(result)
+            elif Peek == '/':
+                result = expr_divide(result)
         return result
 
-With the multiplicative case handled, let's go back and re-evaluate the
+With the multiplicative case handled, let's go back and re-consider the
 arithmetic case. There was a lot of checking in that case for multiplicative
-operators. But if we have that case reference this case, we won't need to
-deal with the multiplicative operators. So the additive case looks like:
+operators. But if we have that function just call our `expr_mulop` function,
+we won't need to worry about it. Without worrying about the multiplicative
+operators, the additive case looks like this:
 
     def additive:
         get a number, or a multiplicative sub-expr
@@ -457,37 +500,83 @@ deal with the multiplicative operators. So the additive case looks like:
         check for another operator
         ...
 
-From this, it becomes obvious that the additive case looks a lot like the
-multiplicative case. Let's go directly to Python::
+Suddenly, there is an obvious loop. And things look a lot more clear:
 
-    def expr_add():
-        """
-        Handle additive sub-expressions. Call expr_mul() as needed.
-        """
-        result = expr_mul()
-        while Peek in _addops_sw:
-            op = get_char()
-            num2 = expr_mul()
-            fn = _addops_sw[op]
-            result = fn(result, num2)
+    def additive:
+        call expr_mulop to handle number-or-higher-precedence
+        while there is an add/subtract operator:
+            if add operator:
+                result = result + ????
+            if subtract operator:
+                result = result - ????
         return result
 
-Boy! Those sure do look similar! And well they should, since they're doing
-the same thing. It's just that we're using two different functions, with a
-relationship between them, to model the precedence relationship between the
-additive and multiplicative operations.
+Notice how much that is shaped like the code for `expr_mulop`, above? That's
+a good sign, I think. The two functions probably *should* look the same,
+since they basically *are* the same except for precedence.
+
+I put in a '????' in two places to point something out. The most direct
+translation of what we were doing might tempt you to replace the '????' with
+a call to `int(get_number)`. But we have to honor the precedence of the
+operators on *both* sides of the operator. In fact, it's more important to
+make sure the precedence is handled on the right than on the left- the
+four-function version of this code got things right whenever the expression
+was '2*3+4'. The problems only appear when it looks like '2+3*4' with the
+lower precedence operator on the left. So make sure that the '????' is
+replaced with another call to expr_mulop::
+
+    if add operator:
+        result = result + expr_mulop()
+    if subtract operator
+        result = result - expr_mulop()
+
+Another thing: that was pseudo-code, but remember that we want to put all
+the checking and operating in a separate subroutine. So let's make a stab at
+the python version::
+
+    def expr_addop():
+        """
+        Handle additive sub-expressions, with precedence.
+        """
+        result = expr_mulop()
+        while Peek in "+-":
+            if Peek == "+":
+                result = expr_add(result)
+            elif Peek == "-":
+                result = expr_subtract(result)
+        return result
+
+And don't forget to update the helper functions to call `expr_mulop` instead
+of calling `get_number`::
+
+    def expr_add(num):
+        match('+')
+        num2 = expr_mulop()
+        return num + num2
+
+    def expr_subtract(num):
+        match('-')
+        num2 = expr_mulop()
+        return num - num2
+
 
 Let's add those two functions to the code, and change the `expression` to
-call `expr_add`. I don't know about you, but when I did that I got a bunch
-of test failures. I had to go fix up some places where I was testing
-multiple operators and I used the flat 4-function calculator precedence
-instead of the standard precedence. Also, my test case for detecting bogus
-operators has failed, and I don't have a good idea about how to get it back.
-I'm going to mark it as `@skip` for now, in case I get smarter later on.
-With that change made, I'm back to all tests passing.
+call `expr_addop`.
+
+I don't know about you, but when I did that I got a bunch of test failures.
+I had to go fix up some places where I was testing multiple operators and I
+used the flat 4-function calculator precedence instead of the standard
+precedence. Also, my test case for detecting bogus operators has failed, and
+I don't have a good idea about how to get it back.  I'm going to mark it as
+`@unittest.skip` for now, in case I get smarter later on.  With that change
+made, I'm back to all tests passing.
 
 Parentheses
 ~~~~~~~~~~~
+
+We're at a pretty good checkpoint right now. I'm going to copy my code,
+which I have named `expr1.py` to a new source file, `expr2.py` so that I'll
+have a stable version to revert back to.
 
 Sometimes you need to override operator precedence. When you want an
 additive operation to be done before a multiplicative one, the answer is to
@@ -549,7 +638,7 @@ The lack of support for a plus or minus sign is really a much larger problem
 that is masked by the familiarity of the plus and minus. In reality, a
 leading plus or minus is a completely different thing from a plus or minus
 between two numbers. A leading minus is a *unary minus,* which is completely
-different from the *binary minus* that appears between two numbers. 
+different from the *binary minus* that appears between two numbers.
 
 For comparison, consider the '&' operator in C. There are two flavors, a
 unary and a binary flavor. The binary flavor represents *bitwise and* and
@@ -593,6 +682,4 @@ Adding the link from `expr_mul` just means replacing calls to `expr_atom`
 with calls to our new function. Go ahead and do that now, and see what the
 test suite has to say. Done correctly, this should address the unary
 problem. (Filling in the lambdas should be obvious.)
-
-
 
