@@ -153,11 +153,13 @@ def expr_atom():
         result = int(get_number())
     elif Peek.isalpha():
         raise NotImplementedError("No variables yet.")
+    else:
+        expected('Atom')
     return result
 
 def expr_divide(num):
     match('/')
-    num2 = expr_atom()
+    num2 = expr_unary()
     result = num // num2
     emitln(".. computed %d // %d = %d" % (num, num2, result))
     return result
@@ -166,7 +168,7 @@ def expr_mulop():
     """
     Handle multiplicative sub-expressions, with precedence.
     """
-    result = expr_atom()
+    result = expr_unary()
     while Peek is not None and Peek in "*/":
         if Peek == "*":
             result = expr_multiply(result)
@@ -176,7 +178,7 @@ def expr_mulop():
 
 def expr_multiply(num):
     match('*')
-    num2 = expr_atom()
+    num2 = expr_unary()
     result = num * num2
     emitln(".. computed %d * %d = %d" % (num, num2, result))
     return result
@@ -186,6 +188,29 @@ def expr_subtract(num):
     num2 = expr_mulop()
     result = num - num2
     emitln(".. computed %d - %d = %d" % (num, num2, result))
+    return result
+
+def expr_unary():
+    """
+    Handle unary operators, like +3 or -9.
+    """
+    if Peek == '+':
+        result = expr_unary_plus()
+    elif Peek == '-':
+        result = expr_unary_minus()
+    else:
+        result = expr_atom()
+    return result
+
+def expr_unary_plus():
+    match('+')
+    result = expr_atom()
+    # +a == a, so there's nothing to do.
+    return result
+
+def expr_unary_minus():
+    match('-')
+    result = -expr_atom()
     return result
 
 def expression():

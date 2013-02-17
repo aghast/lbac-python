@@ -138,6 +138,11 @@ class TestCradle(unittest.TestCase):
         self.assertExpr("(1+1)*5", 10)
         self.assertExpr("(1+2)*(3+4)", 21)
 
+    def test_unary_sign(self):
+        self.assertExpr('-1', -1)
+        self.assertExpr('-2*3', -6)
+        self.assertExpr('+8-3', 5)
+
 if __name__ == '__main__':
     unittest.main()
 

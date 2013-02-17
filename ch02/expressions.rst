@@ -355,6 +355,14 @@ Finally, with the while loop added to the mix, we have an expression parser
 that will accept an arbitrarily long string of binary operations, maintain a
 running result, and print the result at the end of the expression.
 
+**Logical Breaking Point**
+
+Before you go any farther, I'd recommend setting aside a copy of your work
+to day. I have been putting all my code into a file called ``expr1.py1`` up
+to now. I think it's time to copy that over to ``expr2.py`` and copy the
+test code as well. We're going to make a significant set of changes to the
+behavior of the code, so this is a good breaking point.
+
 Operator Precedence
 -------------------
 
@@ -469,7 +477,7 @@ there. Let's try some Python::
 Two things happen: first, the usefulness of writing those helper functions
 to do all the checking and consuming becomes clear! Instead of worrying
 about what kind of operator it is, we do one simple check and then just
-delegate everything else. Sweet! Second, the loop *really* shows up in this
+delegate everything else- sweet! Second, the loop *really* shows up in this
 version. Just like before, we convert this to use a ``while`` and we're
 done::
 
@@ -485,22 +493,30 @@ done::
                 result = expr_divide(result)
         return result
 
-With the multiplicative case handled, let's go back and re-consider the
-arithmetic case. There was a lot of checking in that case for multiplicative
-operators. But if we have that function just call our `expr_mulop` function,
-we won't need to worry about it. Without worrying about the multiplicative
-operators, the additive case looks like this:
+This code will handle a simple number, like "9", or a sub-expression that
+includes one or more multiplicative operators, like "3*3" or "7/2" or even
+"3*4/2*3/2". With the multiplicative operators handled, let's go back and
+re-consider the arithmetic ones. There was a lot of checking in that
+pseudo-code for multiplicative operators. But if we can just call our
+`expr_mulop` function, we won't need to worry about it. Without
+worrying about the multiplicative operators, the additive case looks like
+this::
 
     def additive:
-        get a number, or a multiplicative sub-expr
+        get a number or a multiplicative sub-expr
         if no operator, return the result.
-        read an additive operator.
+        read an additive operator
         get a number, or a multiplicative sub-expr
         evaluate the additive operator
-        check for another operator
+        check for another additive operator
+        get a number, or a multiplicative sub-expr
+        evaluate the additive operator
         ...
 
-Suddenly, there is an obvious loop. And things look a lot more clear:
+Now we can see two things. First, all the worrying about multiplicative
+operators is gone. And second, the new pseudo-code looks a lot like the
+pseudo-code we had for the multiplicative case. Let's try a version
+based on that code::
 
     def additive:
         call expr_mulop to handle number-or-higher-precedence
@@ -574,10 +590,6 @@ made, I'm back to all tests passing.
 Parentheses
 ~~~~~~~~~~~
 
-We're at a pretty good checkpoint right now. I'm going to copy my code,
-which I have named `expr1.py` to a new source file, `expr2.py` so that I'll
-have a stable version to revert back to.
-
 Sometimes you need to override operator precedence. When you want an
 additive operation to be done before a multiplicative one, the answer is to
 use parentheses. Parens, for short, are an "operator" that has an even
@@ -606,21 +618,34 @@ take words, numbers, or parenthesized sub-expressions::
             raise NotImplementedError("No variables yet.")
         return result
 
-Add this function to your code, and change the `expr_mul` function to call
-`expr_atom` instead of `get_number`. Suddenly, the paren_expr test has a
+Add this function to your code, and change the `expr_mulop,`
+`expr_multiply,` and `expr_divide` functions to call `expr_atom` instead of
+`get_number`.  Suddenly, the paren_expr test has a
 weird error. What gives? ::
 
     TypeError: %d format: a number is required, not NoneType
 
-Here's a hint: we weren't calling `expression` recursively before now. Oops!
-Once that issue is fixed, the test cases all pass.
+Until now, we have been using ``expression`` as a caller only, and as a
+place to print the result of the evaluation. Now, with the parenthesized
+sub-expression support, we are recursively calling expression from within
+``expr_atom.`` That means we have to make ``expression`` comply with the
+same interface all the other functions use: consume only what it uses, and
+return the result.  Once that issue is fixed, the test cases all pass::
+
+    def expression():
+        result = expr_addop()
+        return result
+
+    def compile():
+        result = expression()
+        emitln("Result: %d" % result)
 
 Unary Operators
 ~~~~~~~~~~~~~~~
 
-There's one more thing we haven't dealt with yet in parsing expressions:
-what if something comes with a negative (or positive) sign? Let's add a test
-case, so we're clear on what I'm talking about::
+There's one more thing we haven't dealt with yet in parsing expressions-
+*sign.* What is we want to put a negative (or positive) sign on one of our
+terms? Let's add a test case, so we're clear on what I'm talking about::
 
     def test_unary_sign(self):
         self.assertExpr('-1', -1)
@@ -630,38 +655,56 @@ case, so we're clear on what I'm talking about::
 Yikes! Not only did it not work, but I didn't even get a nice looking error
 message. This area definitely needs some work done on it!
 
-The error message problem is because we are capturing all the output,
-including stderr, in our test framework. That's my own fault, so I'll give
-it a pass, for now.
+The problem I had was a used-before-defining error in `expr_atom.` That can
+be fixed by adding an extra "default" condition to the three-way switch
+code::
+
+    def expr_atom():
+        if Peek == '(':
+            match('(')
+            result = expression()
+            match(')')
+        elif Peek.isdigit():
+            result = int(get_number())
+        elif Peek.isalpha():
+            raise NotImplementedError("No variables yet.")
+        else:                   # << new
+            expected('Atom')    # << new
+        return result
+
+With those changes in place, the test case continues to fail but fails in a
+more graceful fashion.
 
 The lack of support for a plus or minus sign is really a much larger problem
-that is masked by the familiarity of the plus and minus. In reality, a
-leading plus or minus is a completely different thing from a plus or minus
-between two numbers. A leading minus is a *unary minus,* which is completely
-different from the *binary minus* that appears between two numbers.
+that is masked by the apparent familiarity of the plus and minus. In
+reality, a leading plus or minus is a completely different thing from a plus
+or minus between two numbers. A leading minus is a *unary minus,* which is
+completely different from the *binary minus* that appears between two
+numbers.
 
 For comparison, consider the '&' operator in C. There are two flavors, a
 unary and a binary flavor. The binary flavor represents *bitwise and* and
 computes an integer result from integer arguments. The unary flavor
 represents *address of* and computes a pointer result from any non-register
 lvalue. Thus, 0x01 & 0xFF yields 0x01. But &foo yields a pointer value, the
-address of the object referred to as 'foo'. The operators look the same -
-the '&' character - but they have nothing to do with one another.
+address of the object referred to as 'foo'. The operators look the same-
+they are both the  '&' character- but they have nothing to do with one
+another.
 
 The same is true for unary and binary minus, or plus. We have to keep in
-mind that they have a different syntax - unary vs. binary - and have
+mind that they have a different syntax- unary vs. binary- and have
 different meanings. And when we move towards compiling to executable code,
 they will be probably be implemented with different opcodes.
 
-With all that said, what are the rules for unary operators? In C, the unary
-operators all share a common precedence level, and use order of appearance
-to determin order of execution. I'll make the suggestion here that this is
-not the only solution. We'll go with the 'C way' for now, but I'll revisit
-this issue later, when we look at Boolean expressions.
+What are the rules for unary operators? In C, the unary operators all share
+a common precedence level, and use order of appearance to determine the
+order of execution. I'll make the suggestion here that this is not the only
+solution.  We'll go with the 'C way' for now, but I'll revisit this issue
+later, when we look at Boolean expressions.
 
 So, if we are assigning unary operators a very high precedence, the obvious
-place to insert them in the chain is right before `expr_atom`. We can create
-an `expr_unary` rule, and add it between `expr_mul` and `expr_atom.`
+place to insert them in the code is in place of `expr_atom`. We can create
+an `expr_unary` rule, and add it between `expr_mulop` and `expr_atom.`
 
 Let's give that a try now::
 
@@ -669,17 +712,30 @@ Let's give that a try now::
         """
         Handle unary operators, like +3 or -9.
         """
-        if Peek in _unaryops_sw:
-            op = get_char()
-            fn = _unaryops_sw[op]
-            num = expr_unary()
-            result = fn(num)
+        if Peek == '+':
+            result = expr_unary_plus()
+        elif Peek == '-':
+            result = expr_unary_minus()
         else:
             result = expr_atom()
         return result
 
-Adding the link from `expr_mul` just means replacing calls to `expr_atom`
-with calls to our new function. Go ahead and do that now, and see what the
-test suite has to say. Done correctly, this should address the unary
-problem. (Filling in the lambdas should be obvious.)
+    def expr_unary_minus():
+        match('-')
+        result = -expr_atom()
+        return result
+
+Note that in many programming languages, an unlimited number of unary
+operators are allowed. We could have something like '+-+-+-3' and it would
+be considered valid. I'm not going to do that.
+
+Adding the link from `expr_mulop` just means replacing calls to `expr_atom`
+with calls to our new function, in the `expr_mulop`, `expr_muliply`, and
+`expr_divide` functions. Go ahead and do that now, and see what the test
+suite has to say. Done correctly, this should address the unary problem.
+
+With that done, it's time to wrap up this chapter. We've done a bunch of
+work, and I hope you can see how to add more levels of operator precedence.
+There are a few things we haven't touched on here, but we'll come back and
+revisit those at a later date.
 
