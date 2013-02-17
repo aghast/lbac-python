@@ -128,16 +128,6 @@ class TestCradle(unittest.TestCase):
         self.assertEqual(compiler.get_char(), 'b')
         self.assertIsNone(compiler.get_char())
 
-    def test_multiple_binops(self):
-        self.assertExpr("1+2*4/3", 3)
-        self.assertExpr("5+3/6*9", 5)
-        try:
-            self.assertExpr("8-5+3/6*9", 3)
-
-        except SystemExit:
-            print("OUTPUT:\n", self.stdout.getvalue())
-            raise
-
 if __name__ == '__main__':
     unittest.main()
 

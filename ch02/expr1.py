@@ -125,21 +125,9 @@ def compile():
 
 def expr_add(num):
     match('+')
-    num2 = expr_mulop()
+    num2 = int(get_number())
     result = num + num2
     emitln(".. computed %d + %d = %d" % (num, num2, result))
-    return result
-
-def expr_addop():
-    """
-    Handle additive sub-expressions, with precedence.
-    """
-    result = expr_mulop()
-    while Peek is not None and Peek in "+-":
-        if Peek == "+":
-            result = expr_add(result)
-        elif Peek == "-":
-            result = expr_subtract(result)
     return result
 
 def expr_divide(num):
@@ -147,18 +135,6 @@ def expr_divide(num):
     num2 = int(get_number())
     result = num // num2
     emitln(".. computed %d // %d = %d" % (num, num2, result))
-    return result
-
-def expr_mulop():
-    """
-    Handle multiplicative sub-expressions, with precedence.
-    """
-    result = int(get_number())
-    while Peek is not None and Peek in "*/":
-        if Peek == "*":
-            result = expr_multiply(result)
-        elif Peek == "/":
-            result = expr_divide(result)
     return result
 
 def expr_multiply(num):
@@ -170,13 +146,24 @@ def expr_multiply(num):
 
 def expr_subtract(num):
     match('-')
-    num2 = expr_mulop()
+    num2 = int(get_number())
     result = num - num2
     emitln(".. computed %d - %d = %d" % (num, num2, result))
     return result
 
 def expression():
-    result = expr_addop()
+    result = int(get_number())
+    while Peek is not None:
+        if Peek not in "+-*/":
+            expected('BinOp')
+        if Peek == '+':
+            result = expr_add(result)
+        elif Peek == '-':
+            result = expr_subtract(result)
+        elif Peek == '*':
+            result = expr_multiply(result)
+        else:
+            result = expr_divide(result)
     emitln("Result: %d" % result)
 
 def main():
