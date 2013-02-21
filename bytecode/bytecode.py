@@ -97,10 +97,16 @@ class CodeObject:
     """True if opcode # takes an arg."""
 
     def __init__(self, from_fn=None):
+        self.co_cellvars = []
         self.co_code = bytearray()
         self.co_consts = [None]
         self.co_firstlineno = 1
+        self.co_freevars = []
+        self.co_names = []
+        self.co_varnames = []
         self.co_offset = 0
+        self._fixups_done = False
+        self._fixups = []
 
         if from_fn is not None:
             c = from_fn.__code__
@@ -110,6 +116,57 @@ class CodeObject:
 
     def __str__(self):
         return ''
+
+    def _do_fixups(self):
+        if self._fixups_done:
+            return
+
+        self._fixups_done = True
+
+        def freevar_fixup(offset):
+            co_code = self.co_code
+            if offset > len(co_code) - 3:
+                raise IndexError("Offset %d too large for co_code (%d)" % offset, len(co_code))
+            opnum = co_code[offset]
+            argval = co_code[offset + 1] | (co_code[offset + 2] << 8)
+            print("freevar fixup: offset %d, argval %d" % (offset, argval))
+            argval = len(self.co_cellvars) + 65535 - argval
+            print("freevar fixup: argval fixed to %d" % argval)
+            self._rewrite(offset, opnum, argval)
+
+        def jump_label_fixup(offset):
+            """Fixup jumps. The argument field will be the index into
+            self._jump_fixups, which should have the correct target
+            offset."""
+            co_code = self.co_code
+            if offset >= len(co_code) - 3:
+                raise IndexError("Offset %d too large for co_code (%d)" % offset, len(co_code))
+            opnum = co_code[offset]
+            argval = co_code[offset + 1] | (co_code[offset + 2] << 8);
+            target = self._jump_targets[argval]
+            if opnum in opcode.hasjrel:
+                delta = target - (offset + 3)
+                if delta > 0xFFFF:
+                    raise ValueError("Cannot fixup jump: delta requires EXTENDED_ARG")
+                co_code[offset + 1] = delta & 0xFF
+                co_code[offset + 2] = (delta >> 8) & 0xFF
+            else:
+                if target > 0xFFFF:
+                    raise ValueError("Cannot fixup jump: target requires EXTENDED_ARG")
+                co_code[offset + 1] = target & 0xFF
+                co_code[offset + 2] = (target >> 8) & 0xFF
+
+        op_fixup_funcs = [ None ] * 256
+        for num in opcode.hasfree:
+            op_fixup_funcs[num] = freevar_fixup
+
+        print("Fixups:")
+        print("Before: " + repr(self.co_code))
+        for offset in reversed(self._fixups):
+            opnum = self.co_code[offset]
+            if op_fixup_funcs[opnum] is not None:
+                op_fixup_funcs[opnum](offset)
+        print("After : " + repr(self.co_code))
 
     def _emit(self, code, arg=None):
         if code > 0xFF:
@@ -124,6 +181,58 @@ class CodeObject:
             append((arg>>8) & 0xFF)
         self.co_offset = len(self.co_code)
 
+    def _find_cell_or_free(self, name, is_store=False):
+        """
+        Find the correct slot index# for variable 'name' in the cell or
+        free variables tables. If name is not in either table, it will
+        be added. If is_store is True, and name is not found, then this
+        is the initial store to the variable, and so `cell` is assumed.
+        Otherwise, `free` is used.
+
+        Return: the index number to use, encoded for later fixup.
+        """
+        print("cell or free: %s?" % name)
+        try:
+            index = self.co_cellvars.index(name)
+            print("Got cellvar: %d" % index)
+        except ValueError:
+            try:
+                index = self.co_freevars.index(name)
+                print("Got freevar: %d" % index)
+            except ValueError:
+                index = len(self.co_freevars)
+                print("Adding freevar: %d" % index)
+                self.co_freevars.append(name)
+            index = 65535 - index
+            self._fixups.append(self.co_offset)
+        if len(self.co_cellvars) + len(self.co_freevars) > 65535:
+            raise RangeError("Too many free+cell vars. Need better algorithm")
+        print("returning index: %d"%index)
+        return index
+
+    def _rewrite(self, offset, opnum, arg=None):
+        co_code = self.co_code
+        was_arg = (co_code[offset] >= self.HAVE_ARGUMENT)
+
+        print("Rewrite: @%d, %d(%s)" % (offset, opnum, repr(arg)))
+        if was_arg:
+            if opnum >= self.HAVE_ARGUMENT:
+                if arg is None:
+                    raise ValueError("Code %d requires an argument, " \
+                        "but None provided" % opnum)
+                elif arg > 0xFFFF:
+                    raise ValueError("Argument %d is too large" % arg)
+                arg1 = arg & 0xFF
+                arg2 = (arg >> 8) & 0xFF
+            else:
+                arg1 = arg2 = self._Op_number['NOP']
+            co_code[offset:offset+3] = (opnum, arg1, arg2)
+        else:
+            if opnum >= self.HAVE_ARGUMENT:
+                raise ValueError("Opcode %d at offset %d has no arguments to replace" % co_code[offset], offset)
+            else:
+                co_code[offset] = opnum
+
     def append(self, instr, arg=_no_valid_arg):
         if instr not in self._Op_number:
             raise ValueError("{!r} is not a valid opop_num name".format(instr))
@@ -137,6 +246,7 @@ class CodeObject:
             else:
                 raise ValueError("Opcode '%s' requires compare-op argument like '<='" % instr)
             self._emit(op_num, arg)
+
         elif op_num in opcode.hasconst:
             try:
                 arg_index = self.co_consts.index(arg)
@@ -144,20 +254,34 @@ class CodeObject:
                 arg_index = len(self.co_consts)
                 self.co_consts.append(arg)
             self._emit(op_num, arg_index)
+
         elif op_num in opcode.hasfree:
-            # Not sure what these mean
-            pass
+            index = self._find_cell_or_free(arg, instr.startswith('STORE'))
+            self._emit(op_num, index)
+
         elif op_num in opcode.hasjabs:
             # Use absolute addressing?
             self._emit(op_num, arg)
+
         elif op_num in opcode.hasjrel:
             self._emit(op_num, arg)
+
         elif op_num in opcode.haslocal:
-            # Search for index in local vars table
-            pass
+            # The *_FAST opcodes
+            try:
+                index = self.co_varnames.index(arg)
+            except ValueError:
+                index = len(self.co_varnames)
+                self.co_varnames.append(arg)
+            self._emit(op_num, index)
+
         elif op_num in opcode.hasname:
-            # Search for index in names table (attributes, mainly)
-            pass
+            try:
+                index = self.co_names.index(arg)
+            except ValueError:
+                index = len(self.co_names)
+                self.co_names.append(arg)
+            self._emit(op_num, index)
         elif op_num in opcode.hasnargs:
             self._emit(op_num, arg)
         else:
@@ -170,10 +294,41 @@ class CodeObject:
                 + '\s* (?: \( (?P<value> [^)]* ) \) )? )?',
         re.X)
 
+    _Argval_lookup = {
+            'LOAD_CONST': lambda s,o: s.co_consts[o],
+            'LOAD_CLOSURE': lambda s,o: s.co_cellvars[o] if o < len(s.co_cellvars) else s.co_freevars[o - len(s.co_cellvars)],
+
+            'DELETE_ATTR' : lambda s,o: s.co_names[o],
+            'LOAD_ATTR'   : lambda s,o: s.co_names[o],
+            'STORE_ATTR'  : lambda s,o: s.co_names[o],
+
+            'DELETE_DEREF': lambda s,o: s.co_cellvars[o] if o < len(s.co_cellvars) else s.co_freevars[o - len(s.co_cellvars)],
+            'LOAD_DEREF'  : lambda s,o: s.co_cellvars[o] if o < len(s.co_cellvars) else s.co_freevars[o - len(s.co_cellvars)],
+            'STORE_DEREF' : lambda s,o: s.co_cellvars[o] if o < len(s.co_cellvars) else s.co_freevars[o - len(s.co_cellvars)],
+
+            'DELETE_FAST': lambda s,o: s.co_varnames[o],
+            'LOAD_FAST': lambda s,o: s.co_varnames[o],
+            'STORE_FAST': lambda s,o: s.co_varnames[o],
+
+            'DELETE_GLOBAL': lambda s,o: s.co_names[o],
+            'LOAD_GLOBAL': lambda s,o: s.co_names[o],
+            'STORE_GLOBAL': lambda s,o: s.co_names[o],
+
+            'DELETE_NAME': lambda s,o: s.co_names[o],
+            'LOAD_NAME': lambda s,o: s.co_names[o],
+            'STORE_NAME': lambda s,o: s.co_names[o],
+
+            'IMPORT_FROM' : lambda s,o: s.co_names[o],
+            'IMPORT_NAME' : lambda s,o: s.co_names[o],
+        }
+
     def check_bytecodes(self, assembly):
         """
         Check bytecodes against an assembly listing from dis.
         """
+        if not self._fixups_done:
+            self._do_fixups()
+
         it = OpcodeIter(self.co_code)
         for asm in assembly.splitlines():
             m = self._Check_line_re.match(asm)
@@ -189,22 +344,21 @@ class CodeObject:
             except StopIteration:
                 raise ValueError("Reached end of bytecodes at line: '%s'" % asm)
 
-            print("{!r}".format((offset,opcode)+tuple(args)))
-            print("{!r}".format(match))
-
             if match['offset'] is not None:
                 assert int(match['offset']) == offset
-            assert match['opcode'] == opcode
+            assert match['opcode'] == opcode, \
+                    "Expected opcode: %s, got %s at line %s" % (match['opcode'], opcode, asm)
             if match['arg'] is not None:
-                assert int(match['arg']) == args[0]
+                assert int(match['arg']) == args[0], \
+                    "Expected arg: %s, got %d at line %s" % (match['arg'], args[0], asm)
+
             mval = match['value']
             if mval is not None:
+                const = self._Argval_lookup[opcode](self, args[0])
                 if mval.startswith("'") or mval.startswith('"'):
-                    const = self.co_consts[args[0]]
                     assert isinstance(const, str)
                     assert const == mval[1:-1]
                 else:
-                    const = self.co_consts[args[0]]
                     compare = type(const)(mval)
                     assert const == compare, \
                         "value %s != %s" % (compare, mval)
@@ -222,3 +376,6 @@ class CodeObject:
             else:
                 print(noarg_fmt.format('', offset, opcode))
 
+    def finalize():
+        if not self._fixups_done:
+            self._do_fixups()

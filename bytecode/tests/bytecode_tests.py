@@ -10,6 +10,7 @@
     :license: GPL v3+, see LICENSE for more details.
 """
 from io import StringIO
+import opcode
 import pdb
 import sys
 import unittest
@@ -38,6 +39,110 @@ class TestBytecode(unittest.TestCase):
                 LOAD_CONST      1 (42)
                 RETURN_VALUE
         """
+        co.check_bytecodes(asm)
+
+    def test_noarg_opcodes(self):
+        """
+        Append all the no-args instructions. Generate a list of opcodes that
+        should match.
+        """
+        co = CodeObject()
+        asm = ''
+        offset = 0
+        for num in range(opcode.HAVE_ARGUMENT-1):
+            opname = opcode.opname[num]
+            if opname.startswith('<'):
+                continue
+            co.append(opname)
+            asm += "\t\t%d %s\t\n" % (offset, opname)
+            offset += 1
+        co.check_bytecodes(asm)
+
+    def test_conames_opcodes(self):
+        """
+        Append instructions that use co_names
+        """
+        co = CodeObject()
+        asm = ''
+        names = []
+
+        co.append('STORE_NAME', 'n_1')
+        asm += "\tSTORE_NAME\t0 (n_1)\n"
+        names.append('n_1')
+
+        co.append('DELETE_NAME', 'n_1')
+        asm += "\tDELETE_NAME\t0 (n_1)\n"
+
+        co.append('STORE_ATTR', 'a_1')
+        asm += "\tSTORE_ATTR\t1 (a_1)\n"
+        names.append('a_1')
+
+        co.append('DELETE_ATTR', 'a_1')
+        asm += "\tDELETE_ATTR\t1 (a_1)\n"
+
+        co.append('STORE_GLOBAL', 'g_1')
+        asm += "\tSTORE_GLOBAL\t2 (g_1)\n"
+        names.append('g_1')
+
+        co.append('DELETE_GLOBAL', 'g_1')
+        asm += "\tDELETE_GLOBAL\t2 (g_1)\n"
+
+        co.append('LOAD_NAME', 'n_1')
+        asm += "\tLOAD_NAME\t0 (n_1)\n"
+
+        co.append('LOAD_ATTR', 'a_1')
+        asm += "\tLOAD_ATTR\t1 (a_1)\n"
+
+        co.append('IMPORT_NAME', 'i_1')
+        asm += "\tIMPORT_NAME\t3 (i_1)\n"
+
+        co.append('IMPORT_FROM', 'f_1')
+        asm += "\tIMPORT_FROM\t4 (f_1)\n"
+
+        co.append('LOAD_GLOBAL', 'g_1')
+        asm += "\tLOAD_GLOBAL\t2 (g_1)\n"
+
+        co.check_bytecodes(asm)
+
+    def test_covarnames_opcodes(self):
+        """
+        Append instructions that use co_varnames
+        """
+        co = CodeObject()
+        asm = ''
+
+        co.append('DELETE_FAST', 'v_1')
+        asm += "\tDELETE_FAST 0 (v_1)\n"
+
+        co.append('LOAD_FAST', 'v_1')
+        asm += "\tLOAD_FAST 0 (v_1)\n"
+
+        co.append('STORE_FAST', 'v_1')
+        asm += "\tSTORE_FAST 0 (v_1)\n"
+
+        co.check_bytecodes(asm)
+
+    def test_cofreevars_opcodes(self):
+        """
+        Append instructions that use co_freevars
+        """
+        co = CodeObject()
+        asm = ''
+
+        co.co_cellvars.append('c_1')
+        co.co_freevars.append('f_1')
+        co.append('LOAD_CLOSURE', 'f_2')
+        asm += "\tLOAD_CLOSURE 2 (f_2)\n"
+
+        co.append('LOAD_DEREF', 'c_1')
+        asm += "\tLOAD_DEREF 0 (c_1)\n"
+
+        co.append('DELETE_DEREF', 'f_1')
+        asm += "\tDELETE_DEREF 1 (f_1)\n"
+
+        co.append('STORE_DEREF', 'f_1')
+        asm += "\tSTORE_DEREF 1 (f_1)\n"
+
         co.check_bytecodes(asm)
 
 if __name__ == '__main__':
