@@ -37,3 +37,6 @@ nosetests.xml
 
 # Sphinx
 _build/
+
+# Jekyll
+_site/
