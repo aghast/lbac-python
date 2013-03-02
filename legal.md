@@ -1,10 +1,14 @@
+<!---
+vim: set et fileencoding=utf8 sts=4 sw=4 ts=4 tw=76
+-->
+
 Legal Details
 =============
 
 Copyright
 ---------
 
-Copyright © 2013 Austin Hastings.
+Copyright &copy; xx2013 Austin Hastings.
 
 Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or

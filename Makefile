@@ -2,6 +2,8 @@
 BUILDDIR = _build
 BUILD_HTML = $(BUILDDIR)/html
 
+.PHONY: all html clean
+
 all: html
 
 clean:
@@ -12,6 +14,10 @@ html:
 	find . -iname '*.md'	\
 	| while read infile ;	\
 	do						\
+		outfile=$(BUILD_HTML)/$${infile/.md/.html}; \
+		[[ $$infile -nt $$outfile ]] || continue; \
+		echo "*** Rebuilding $$infile"; \
+		mkdir -p "$${outfile%/*}"; \
 		pandoc -o "$(BUILD_HTML)/$${infile/.md/.html}" "$$infile"; \
 	done
 
