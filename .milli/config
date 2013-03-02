@@ -1,0 +1,29 @@
+
+#
+#  Each bug in the database has an associated state.
+#
+#  By default we support two states:
+#
+#   open    - The bug is still present.
+#   closed  - The bug has been fixed.
+#
+#  You may create your own labels and choose which ones are supported by
+# updating the following two settings:
+#
+states = open, closed
+default-state = open
+
+#
+#
+#  Each bug in the database may have an associated priority.
+#
+#  The labels you choose to asign to prorities may be specified here,
+# and you may use an arbitrary number of them in order of "low" -> "high".
+#
+priorities = low, normal, high
+
+#
+#  Default priority to assign to new bugs.
+#
+default-priority = normal
+

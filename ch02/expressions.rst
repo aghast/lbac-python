@@ -4,7 +4,7 @@
    Created Thu Feb 14 09:59:43 EST 2013, by austin.
 
 Expression Parsing
-=================
+==================
 
 The first part of parsing is always expression parsing. Why is that?
 Well, probably because it's a simple, straightforward task with a little
@@ -66,7 +66,7 @@ of mathematical expressions correctly.
 We have a choice: we can start working towards parsing more types of
 expressions, or we can work more towards compiling the expressions we can
 successfully parse into some kind of runnable format. Because we're just
-getting started, and because of the first rule, [1]_ I'm going to carry on
+getting started, and because of the first rule, [#rule]_ I'm going to carry on
 with the expression parsing part, and leave the code generation for later.
 
 Top-Down Parsing
@@ -739,3 +739,6 @@ work, and I hope you can see how to add more levels of operator precedence.
 There are a few things we haven't touched on here, but we'll come back and
 revisit those at a later date.
 
+.. rubric:: Footnotes
+
+.. [#rule] Rule 1: We always start with an expression parser.

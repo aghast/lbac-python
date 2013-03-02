@@ -5,10 +5,8 @@ Preface: 25 years later
 
 I don't know exactly when he started composing the series, but between July of
 1988 and May of 1995 Jack Crenshaw published a series of articles titled
-:title:`Let's Build a Compiler!`
-
-That series remains perhaps the best available reference for codes interested
-in the process of developing a :term:`*Language Processor*` such as a
+:title:`Let's Build a Compiler!` That series remains perhaps the best available reference for codes interested
+in the process of developing a *:term:`Language Processor`* such as a
 syntax hilighter, SLOC counter, static analyzer, interpreter or compiler.
 
 Because of the enduring quality of the series, and because I find myself (25
