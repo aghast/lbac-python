@@ -1,3 +1,4 @@
 auto:           true
 pygments:       true
+exclude:        [ _config.yml, README.md ]
 
