@@ -1,3 +1,8 @@
+---
+layout: chapter
+title: "Preface: 25 years later"
+---
+
 Preface: 25 years later
 =======================
 

@@ -1,3 +1,7 @@
+---
+layout: chapter
+title: Legal Details
+---
 <!---
 vim: set et fileencoding=utf8 sts=4 sw=4 ts=4 tw=76
 -->
