@@ -5,8 +5,9 @@
     ~~~~~~~~~~~
 
     A framework of commonly-used routines for the Let's Build a Compiler
-    (in Python)!  project, chapter 4. If you have your own version that
-    passes the tests, copy it over this one.
+    (in Python)!  project, chapter 4. Chapter 4 saw a modification to
+    replace the line-oriented `emit` and `emitln` with a
+    bytecode-oriented `emit` only.
 
     :copyright: 2013 by Austin Hastings, see AUTHORS for more details.
     :license: GPL v3+, see LICENSE for more details.
@@ -99,25 +100,21 @@ def match(ch):
 
 ##### Output functions
 
-_Output = None
-""" Output stream for results.  """
+_Code = None
+""" CodeObject for compiled results. """
 
-def emit(text):
-    _Output.write(text)
-
-def emitln(text):
-    _Output.write(text + "\n")
+def emit(op, arg=None):
+    _Code.append(op, arg)
 
 ##### Processing
 
 def init(inp=None, out=None, err=None):
-    global _Input, _Output, _Error
-    _Output = out if out is not None else sys.stdout
+    global _Code, _Input, _Error
     _Error = err if err is not None else sys.stderr
-
     _Input = inp if inp is not None else _Input
     # 'prime the pump' to read first character, etc.
     get_char()
+    _Code = bytecode.CodeObject()
 
 def compile():
     pass
