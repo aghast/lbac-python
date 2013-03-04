@@ -5,16 +5,16 @@ title: Introduction
 Introduction
 ============
 
-I am not an academic. I'm not trying to get a Ph.D. I'm not worried
-about tenure, or publishing. So I don't have much of an interest in the
-"Theory of Computation." This is another thing that I have in common
-with Jack Crenshaw: I would much rather write some code that works, than
-spend page after page playing games with sets and theorems and such.
+I am not an academic. I'm not trying to get a Ph.D. I'm not worried about
+tenure, or publishing. So I don't have much of an interest in the "Theory of
+Computation." I have this in common with Jack Crenshaw: I would much rather
+write some code that works, than spend page after page playing games with
+sets and theorems and such.
 
 Like Jack, I have a great deal of respect for the accomplishments of the
-academics that have established the basis for what we are doing here.
-But as with the guys that maintain the public sewer system, I would
-rather appreciate their work from afar.
+academics that have established the basis for what we are doing here.  But
+as with the guys that maintain the public sewer system, I prefer to
+appreciate their work from afar.
 
 So I'm not going to go into detail about a bunch of theory stuff. That
 doesn't mean I won't use it. And it doesn't mean I won't refer you to
@@ -54,7 +54,7 @@ structure looks like:
             -   cradle.py ...
 
 Each chapter will have a tests/ subdirectory. And each chapter will have
-its own copy of =cradle.py= -- a file we're going to write in this
+its own copy of `cradle.py` -- a file we're going to write in this
 chapter, that contains a bunch of common, low-level routines.
 
 The Cradle
