@@ -40,3 +40,4 @@ _build/
 
 # Jekyll
 _site/
+_cache/
