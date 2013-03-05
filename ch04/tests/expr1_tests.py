@@ -14,13 +14,14 @@ import sys
 import unittest
 
 from ch04 import expr1 as compiler
+from ch04.bytecode import instructions_match
 
 class TestCompiler(unittest.TestCase):
 
     def assertExpr(self, text, asm):
         compiler.init(inp=StringIO(text))
         co = compiler.compile()
-        co.check_bytecodes(asm)
+        instructions_match(co, asm)
 
     def test_constant(self):
         asm = """

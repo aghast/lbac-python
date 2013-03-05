@@ -14,7 +14,7 @@ import sys
 import io
 import pdb
 
-from bytecode import bytecode
+from . import bytecode
 
 ##### Error handling
 
@@ -109,8 +109,7 @@ def emit(op, arg=None):
 ##### Processing
 
 def init(inp=None, out=None, err=None):
-    global _Code, _Input, _Output, _Error
-    _Output = out if out is not None else sys.stdout
+    global _Code, _Input, _Error
     _Error = err if err is not None else sys.stderr
     _Input = inp if inp is not None else _Input
     # 'prime the pump' to read first character, etc.
