@@ -663,7 +663,30 @@ def test_unary_plus(self):
 
 Great! Now we have a bytecode-generating version of our parser from chapter
 2. This is a great stopping point. If you've got things to do, now would be
-a good time to take a break. Our next step will be to add function calls.
+a good time to take a break.
+
+Does it Run?
+============
+
+So far, we've generated a lot of bytecode in binary form, and we've been
+testing it by disassembling the bytecodes and comparing them against a list
+of strings. That's good for testing, but it isn't as satisfying as having
+code actually run. So let's see if our code will actually run - by which
+I mean 'generate bytecodes that do what we expect inside a live Python VM.'
+
+Presently, we are modeling a 'code object' from Python with our CodeObject
+class. 
+
+Variables
+=========
+
+We have an expression compiler that right now only supports constant
+expressions. The obvious next thing to add would be variables. With
+variables, we can build a desktop calculator to match the best of them! And
+also, we'll be on our way to loops and subroutines.
+
+Assignments
+===========
 
 Functions
 =========
@@ -771,25 +794,10 @@ which includes x++, x--, a[i], and f(x), are higher precedene than the unary
 prefix operators. (This makes sense: -f(x) is negating the result of the
 call, not calling a negated function.)
 
-So we can insert ``expr_postfix`` between ``expr_unary`` and ``expr_atom``
-in our parser logic, and check for a trailing paren. (In C and Python, a
-function might return a reference to another function, so that f()() is a
-valid expression. I'm going to leave that out, at least for now.)
-
-Here's a quick first cut:
-```
-def expr_postfix():
-    expr_atom()
-    if Peek == '(':
-        match('(')
-        match(')')
-```
-
-That function only recognizes calls like ``f().`` But it does recognize
-them!
-
-Assignments
-===========
+We *could* try to follow the C route, of allowing any arithmetic expression
+to be treated as a pointer to a function. But I don't think we're ready for
+that just yet. So instead, let's admit that a function has a name, and let's
+insert function call recognition in with name recognition.
 
 Multi-Character Tokens
 ======================
