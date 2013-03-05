@@ -39,5 +39,4 @@ nosetests.xml
 _build/
 
 # Jekyll
-_site/
 _cache/

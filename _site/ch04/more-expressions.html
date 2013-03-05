@@ -1,0 +1,794 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="author" content="Austin Hastings" />
+    <link href="/stylesheets/normalize.css" media="screen" rel="stylesheet" type="text/css" />
+    <link href="/stylesheets/pygments_borland.css" media="screen" rel="stylesheet" type="text/css" />
+    <link href="/stylesheets/styles.css" media="screen" rel="stylesheet" type="text/css" />
+    <script src="/javascripts/main.js" type="text/javascript"></script>
+
+    <title>More Expressions</title>
+  </head>
+  <body>
+    <header>
+      <h1><a href="/">More Expressions</a></h1>
+    </header>
+    <section>
+      <div class="content">
+  <div id="chapter">
+    <h1></h1>
+    <h1 id="toc_8">More Expressions</h1>
+
+<p>Now, let&#39;s see what our bytecode module can do! In this chapter, we&#39;ll be
+integrating our bytecode module with the expression parser, and then
+extending our parser to add more capabilities.</p>
+
+<h2 id="toc_9">Generating Bytecode</h2>
+
+<p>To get started, let&#39;s recap the capabilities that our expression parser
+had at the end of chapter 2. We could:</p>
+
+<ul>
+<li>recognize numbers;</li>
+<li>handle unary &#39;+&#39; and &#39;-&#39; operators;</li>
+<li>add, subtract, multiply, and divide two operands;</li>
+<li>correctly handle operator precedence;</li>
+<li>handle nested sub-expressions in parentheses.</li>
+</ul>
+
+<p>How will we integrate bytecode? First, our use of literal numbers to
+evaluate expressions will change into adding constants to the constants
+table (handled already by the bytecode library). The unary &#39;+&#39; operator can
+be ignored, and the unary &#39;-&#39; will convert into a dedicated &#39;UNARY_NEGATIVE&#39;
+opcode. The binary operators all have dedicated opcodes in the Python VM, so
+those will convert into dedicated opcodes.  Operator precedence is already
+handled by the order in which the parser evaluates the operators. And
+parentheses are handled in the same way - by recursively evaluating the
+nested sub-expression before the outer expression is evaluated.</p>
+
+<p>All in all, it looks like we have a few cases down at the lower levels of
+the parser - the operators, numbers - where we will have to generate
+bytecode. And the rest of our features are actually handled implicitly by
+the expression parser, so we won&#39;t have to make any changes to keep them!</p>
+
+<p>Before we start converting our code to write bytes, let&#39;s look at two
+issues that may not be clear to you: why does our parser just
+&#39;magically&#39; support the correct order of evaluation, and why are
+dedicated opcodes significant?</p>
+
+<h2 id="toc_10">Order of Evaluation</h2>
+
+<p>Just exactly how does our parser manage to get the order of evaluation
+correct? Because we told it to!</p>
+
+<p>If you remember, when we first started parsing expressions, we wrote
+code to emulate a four-function calculator. That code just evaluated
+expressions in the order they appeared. 3 + 4 * 5 was evaluated as
+(3+4=7) and then (7*5=35). That, we decided, was wrong.</p>
+
+<p>So we changed our code to use &quot;recursive descent.&quot; In this case, the
+expression evaluation code for the additive operators (plus and minus)
+knew (because we programmed it to know!) that multiplication and
+dividion (and other stuff) had a higher precedence than the additive
+operators. So before the additive expression code processes anything, it
+calls the multiplicative part of the parser to check for
+higher-precedence ops. And the multiplicative part, before it does
+anything, calls the atom part to check for parens, etc.</p>
+
+<p>In this way, we have coded the parser to implicitly <em>know</em> what the
+precedence of the operators is, and to automatically implement the
+correct order of evaluation. If we generate the code to evaluate our
+expressions in the same order we have been computing the results, then
+whatever code we generate should also compute correct results, since it
+will model its order of evaluation on the order we are using!</p>
+
+<h2 id="toc_11">Dedicated Opcodes</h2>
+
+<p>Believe it or not, having dedicated opcodes to support things like
+multiplication is a relatively recent thing. In the 1990&#39;s, the SPARC
+processor (from Sun Microsystems) was shipped with no multiply or divide
+instruction in hardware. Instead, the reference manual included software
+routines that could be used to perform arbitrary integer multiply and divide
+operations using <em>multiply step</em> and <em>divide step</em> operations built into the
+CPU.</p>
+
+<p>Below is the shortest such routine, for unsigned integer multiplication
+(multiply two 32-bit numbers into a 64-bit result). Two things you need to
+know about the SPARC to have any hope of understanding this code are (1) the
+SPARC executes one additional operation during the &quot;branch delay&quot; while the
+processor is waiting for a branch target to be fetched, so the next op after
+a branch or return statement will be executed always; and (2) the SPARC
+processors had a model of three groups of registers that would be shifted
+slightly on each subroutine call, so that the %o registers mentioned below
+are all visible to the caller on return.:</p>
+<div class="highlight"><pre><code class="gas"><span class="err">/*</span>
+ <span class="err">*</span> <span class="nf">Procedure</span> <span class="no">to</span> <span class="no">perform</span> <span class="no">a</span> <span class="mi">32</span> <span class="no">by</span> <span class="mi">32</span> <span class="no">unsigned</span> <span class="no">multiply.</span>
+ <span class="err">*</span> <span class="nf">Pass</span> <span class="no">the</span> <span class="no">multiplier</span> <span class="no">in</span> <span class="nv">%o0</span><span class="p">,</span> <span class="no">and</span> <span class="no">the</span> <span class="no">multiplicand</span> <span class="no">in</span> <span class="nv">%o1.</span>
+ <span class="err">*</span> <span class="nf">The</span> <span class="no">least</span> <span class="no">significant</span> <span class="mi">32</span> <span class="no">bits</span> <span class="no">of</span> <span class="no">the</span> <span class="no">result</span> <span class="no">will</span> <span class="no">be</span> <span class="no">returned</span> <span class="no">in</span> <span class="nv">%o0</span><span class="p">,</span>
+ <span class="err">*</span> <span class="nf">and</span> <span class="no">the</span> <span class="no">most</span> <span class="no">significant</span> <span class="no">in</span> <span class="nv">%o1.</span> <span class="p">*</span>
+ <span class="err">*</span> <span class="nf">This</span> <span class="no">code</span> <span class="no">has</span> <span class="no">an</span> <span class="no">optimization</span> <span class="no">built-in</span> <span class="no">for</span> <span class="no">short</span> <span class="p">(</span><span class="no">less</span> <span class="no">than</span> <span class="mi">13</span> <span class="no">bit</span><span class="p">)</span>
+ <span class="err">*</span> <span class="nf">multiplies.</span> <span class="no">Short</span> <span class="no">multiplies</span> <span class="no">require</span> <span class="mi">25</span> <span class="no">instruction</span> <span class="no">cycles</span><span class="p">,</span> <span class="no">and</span> <span class="no">long</span> <span class="no">ones</span>
+ <span class="err">*</span> <span class="nf">require</span> <span class="mi">46</span> <span class="no">or</span> <span class="mi">48</span> <span class="no">instruction</span> <span class="no">cycles.</span>
+ <span class="err">*</span>
+ <span class="err">*</span> <span class="nf">This</span> <span class="no">code</span> <span class="no">indicates</span> <span class="no">that</span> <span class="no">overflow</span> <span class="no">has</span> <span class="no">occurred</span><span class="p">,</span> <span class="no">by</span> <span class="no">leaving</span> <span class="no">the</span> <span class="no">Z</span> <span class="no">condition</span>
+ <span class="err">*</span> <span class="nf">code</span> <span class="no">clear.</span> <span class="no">The</span> <span class="no">following</span> <span class="no">call</span> <span class="no">sequence</span> <span class="no">would</span> <span class="no">be</span> <span class="no">used</span> <span class="no">if</span> <span class="no">you</span> <span class="no">wish</span> <span class="no">to</span>
+ <span class="err">*</span> <span class="nf">deal</span> <span class="no">with</span> <span class="no">overflow</span><span class="p">:</span>
+ <span class="err">*</span>
+ <span class="err">*</span> <span class="nf">call</span>         <span class="no">.umul</span>
+ <span class="err">*</span> <span class="nf">nop</span>                          <span class="err">!</span> <span class="p">(</span><span class="no">or</span> <span class="no">set</span> <span class="no">up</span> <span class="no">last</span> <span class="no">parameter</span> <span class="no">here</span><span class="p">)</span>
+ <span class="err">*</span> <span class="nf">bnz</span>          <span class="no">overflow_code</span>   <span class="err">!</span> <span class="p">(</span><span class="no">or</span> <span class="no">tnz</span> <span class="no">to</span> <span class="no">overflow</span> <span class="no">handler</span><span class="p">)</span>
+ <span class="err">*</span>
+ <span class="err">*</span> <span class="nf">Note</span> <span class="no">that</span> <span class="no">this</span> <span class="no">is</span> <span class="no">a</span> <span class="no">leaf</span> <span class="no">routine</span><span class="err">;</span> <span class="no">i.e.</span> <span class="no">it</span> <span class="no">calls</span> <span class="no">no</span> <span class="no">other</span> <span class="no">routines</span> <span class="no">and</span> <span class="no">does</span>
+ <span class="err">*</span> <span class="nf">all</span> <span class="no">of</span> <span class="no">its</span> <span class="no">work</span> <span class="no">in</span> <span class="no">the</span> <span class="no">out</span> <span class="no">registers.</span> <span class="no">Thus</span><span class="p">,</span> <span class="no">the</span> <span class="no">usual</span> <span class="no">SAVE</span> <span class="no">and</span> <span class="no">RESTORE</span>
+ <span class="err">*</span> <span class="nf">instructions</span> <span class="no">are</span> <span class="no">not</span> <span class="no">needed.</span>
+ <span class="err">*/</span>
+    <span class="nf">global</span>      <span class="no">.umul</span>
+<span class="nl">.umul:</span>
+    <span class="nf">or</span>          <span class="nv">%o0</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">logical</span> <span class="no">or</span> <span class="no">of</span> <span class="no">multiplier</span> <span class="no">and</span> <span class="no">multiplicand</span>
+    <span class="nf">mov</span>         <span class="nv">%o0</span><span class="p">,</span> <span class="nv">%y</span>         <span class="err">!</span> <span class="no">multiplier</span> <span class="no">to</span> <span class="no">Y</span> <span class="no">register</span>
+    <span class="nf">andncc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="mi">0xfff</span><span class="p">,</span> <span class="nv">%o5</span> <span class="err">!</span> <span class="no">mask</span> <span class="no">out</span> <span class="no">lower</span> <span class="mi">12</span> <span class="no">bits</span>
+    <span class="nf">be</span>          <span class="no">mul_shortway</span>    <span class="err">!</span> <span class="no">can</span> <span class="no">do</span> <span class="no">it</span> <span class="no">the</span> <span class="no">short</span> <span class="no">way</span>
+    <span class="nf">andcc</span>       <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">zero</span> <span class="no">the</span> <span class="no">partial</span> <span class="no">product</span> <span class="no">and</span> <span class="no">clear</span> <span class="no">N</span> <span class="no">and</span> <span class="no">V</span> <span class="no">conditions</span>
+    <span class="err">!</span>
+    <span class="err">!</span> <span class="nf">long</span> <span class="no">multiply</span>
+    <span class="err">!</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">first</span> <span class="no">iteration</span> <span class="no">of</span> <span class="mi">33</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="mi">32</span><span class="no">nd</span> <span class="no">iteration</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">last</span> <span class="no">iteration</span> <span class="no">only</span> <span class="no">shifts</span>
+<span class="err">/*</span>
+ <span class="err">*</span> <span class="nf">Normally</span><span class="p">,</span> <span class="no">with</span> <span class="no">the</span> <span class="no">shift</span> <span class="no">and</span> <span class="no">add</span> <span class="no">approach</span><span class="p">,</span> <span class="no">if</span> <span class="no">both</span> <span class="no">numbers</span> <span class="no">are</span>
+ <span class="err">*</span> <span class="nf">nonnegative</span><span class="p">,</span> <span class="no">you</span> <span class="no">get</span> <span class="no">the</span> <span class="no">correct</span> <span class="no">result.</span> <span class="no">With</span> <span class="mi">32</span><span class="p">-</span><span class="no">bit</span> <span class="no">twos-complement</span>
+ <span class="err">*</span> <span class="nf">numbers</span><span class="p">,</span> <span class="p">-</span><span class="no">x</span> <span class="no">can</span> <span class="no">be</span> <span class="no">represented</span> <span class="no">as</span> <span class="p">((</span><span class="mi">2</span> <span class="p">-</span> <span class="p">(</span><span class="no">x</span><span class="err">/</span><span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">)))</span> <span class="no">mod</span> <span class="mi">2</span><span class="p">)</span> <span class="p">*</span> <span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">.</span>
+ <span class="err">*</span> <span class="nf">To</span> <span class="no">avoid</span> <span class="no">a</span> <span class="no">lot</span> <span class="no">of</span> <span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="err">’</span><span class="no">s</span><span class="p">,</span> <span class="no">we</span> <span class="no">can</span> <span class="no">just</span> <span class="no">move</span> <span class="no">the</span> <span class="no">radix</span> <span class="no">point</span> <span class="no">up</span> <span class="no">to</span> <span class="no">be</span>
+ <span class="err">*</span> <span class="nf">just</span> <span class="no">to</span> <span class="no">the</span> <span class="no">left</span> <span class="no">of</span> <span class="no">the</span> <span class="no">sign</span> <span class="no">bit.</span> <span class="no">So</span><span class="p">:</span>
+ <span class="err">*</span>
+ <span class="err">*</span>  <span class="nf">x</span> <span class="p">*</span>  <span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
+ <span class="err">*</span> <span class="err">-</span><span class="nf">x</span> <span class="p">*</span>  <span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">x</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span> <span class="p">*</span> <span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span><span class="no">y</span> <span class="p">-</span> <span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
+ <span class="err">*</span>  <span class="nf">x</span> <span class="p">*</span> <span class="p">-</span><span class="no">y</span> <span class="err">=</span> <span class="no">x</span> <span class="p">*</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">y</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span><span class="no">x</span> <span class="p">-</span> <span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
+ <span class="err">*</span> <span class="err">-</span><span class="nf">x</span> <span class="p">*</span> <span class="p">-</span><span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">x</span><span class="p">)</span> <span class="p">*</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">y</span><span class="p">)</span> <span class="err">=</span> <span class="p">(</span><span class="mi">4</span> <span class="p">-</span> <span class="mi">2</span><span class="no">x</span> <span class="p">-</span> <span class="mi">2</span><span class="no">y</span> <span class="err">+</span> <span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
+ <span class="err">*</span>
+ <span class="err">*</span> <span class="nf">For</span> <span class="no">signed</span> <span class="no">multiplies</span><span class="p">,</span> <span class="no">we</span> <span class="no">subtract</span> <span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">)</span> <span class="p">*</span> <span class="no">x</span> <span class="no">from</span> <span class="no">the</span> <span class="no">partial</span>
+ <span class="err">*</span> <span class="nf">product</span> <span class="no">to</span> <span class="no">fix</span> <span class="no">this</span> <span class="no">problem</span> <span class="no">for</span> <span class="no">negative</span> <span class="no">multipliers</span> <span class="p">(</span><span class="no">see</span> <span class="no">.mul</span> <span class="no">in</span>
+ <span class="err">*</span> <span class="nf">Section</span> <span class="mi">1</span><span class="p">.</span>
+ <span class="err">*</span> <span class="nf">Because</span> <span class="no">of</span> <span class="no">the</span> <span class="no">way</span> <span class="no">the</span> <span class="no">shift</span> <span class="no">into</span> <span class="no">the</span> <span class="no">partial</span> <span class="no">product</span> <span class="no">is</span> <span class="no">calculated</span>
+ <span class="err">*</span> <span class="err">(</span><span class="nf">N</span> <span class="no">xor</span> <span class="no">V</span><span class="p">),</span> <span class="no">this</span> <span class="no">term</span> <span class="no">is</span> <span class="no">automatically</span> <span class="no">removed</span> <span class="no">for</span> <span class="no">the</span> <span class="no">multiplicand</span><span class="p">,</span>
+ <span class="err">*</span> <span class="nf">so</span> <span class="no">we</span> <span class="no">don</span><span class="err">&#39;</span><span class="no">t</span> <span class="no">have</span> <span class="no">to</span> <span class="no">adjust.</span>
+ <span class="err">*</span>
+ <span class="err">*</span> <span class="nf">But</span> <span class="no">for</span> <span class="no">unsigned</span> <span class="no">multiplies</span><span class="p">,</span> <span class="no">the</span> <span class="no">high</span> <span class="no">order</span> <span class="no">bit</span> <span class="no">wasn</span><span class="err">&#39;</span><span class="no">t</span> <span class="no">a</span> <span class="no">sign</span> <span class="no">bit</span><span class="p">,</span>
+ <span class="err">*</span> <span class="nf">and</span> <span class="no">the</span> <span class="no">correction</span> <span class="no">is</span> <span class="no">wrong.</span> <span class="no">So</span> <span class="no">for</span> <span class="no">unsigned</span> <span class="no">multiplies</span> <span class="no">where</span> <span class="no">the</span>
+ <span class="err">*</span> <span class="nf">high</span> <span class="no">order</span> <span class="no">bit</span> <span class="no">is</span> <span class="no">one</span><span class="p">,</span> <span class="no">we</span> <span class="no">end</span> <span class="no">up</span> <span class="no">with</span> <span class="no">xy</span> <span class="p">-</span> <span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">)</span> <span class="p">*</span> <span class="no">y.</span> <span class="no">To</span> <span class="no">fix</span> <span class="no">it</span><span class="p">,</span>
+ <span class="err">*</span> <span class="nf">we</span> <span class="no">add</span> <span class="no">y</span> <span class="p">*</span> <span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">).</span>
+ <span class="err">*/</span>
+    <span class="nf">tst</span>         <span class="nv">%o1</span>
+    <span class="nf">bge</span>         <span class="no">lf</span>
+    <span class="nf">nop</span>
+    <span class="nf">add</span>         <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o0</span><span class="p">,</span> <span class="nv">%o4</span>
+<span class="err">1:</span>
+    <span class="nf">rd</span>          <span class="nv">%y</span><span class="p">,</span> <span class="nv">%o0</span>         <span class="err">!</span> <span class="no">return</span> <span class="no">least</span> <span class="no">sig.</span> <span class="no">bits</span> <span class="no">of</span> <span class="no">prod</span>
+    <span class="nf">retl</span>                        <span class="err">!</span> <span class="no">leaf-routine</span> <span class="no">return</span>
+    <span class="nf">addcc</span>       <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o1</span>   <span class="err">!</span> <span class="no">delay</span> <span class="no">slot</span><span class="err">;</span> <span class="no">return</span> <span class="no">high</span> <span class="no">bits</span> <span class="no">and</span> <span class="no">set</span>
+                                <span class="err">!</span> <span class="nf">zero</span> <span class="no">bit</span> <span class="no">appropriately</span>
+    <span class="err">!</span>
+    <span class="err">!</span> <span class="nf">short</span> <span class="no">multiply</span>
+    <span class="err">!</span>
+<span class="nl">mul_shortway:</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">first</span> <span class="no">iteration</span> <span class="no">of</span> <span class="mi">13</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="mi">12</span><span class="no">th</span> <span class="no">iteration</span>
+    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">last</span> <span class="no">iteration</span> <span class="no">only</span> <span class="no">shifts</span>
+
+    <span class="nf">rd</span>          <span class="nv">%y</span><span class="p">,</span> <span class="nv">%o5</span>
+    <span class="nf">sll</span>         <span class="nv">%o4</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="nv">%o4</span>    <span class="err">!</span> <span class="no">left</span> <span class="no">shift</span> <span class="no">partial</span> <span class="no">product</span> <span class="no">by</span> <span class="mi">12</span> <span class="no">bits</span>
+    <span class="nf">srl</span>         <span class="nv">%o5</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="nv">%o5</span>    <span class="err">!</span> <span class="no">right</span> <span class="no">shift</span> <span class="no">product</span> <span class="no">by</span> <span class="mi">20</span> <span class="no">bits</span>
+    <span class="nf">or</span>          <span class="nv">%o5</span><span class="p">,</span> <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o0</span>   <span class="err">!</span> <span class="no">merge</span> <span class="no">for</span> <span class="no">true</span> <span class="no">product</span>
+    <span class="err">!</span>
+    <span class="err">!</span> <span class="nf">The</span> <span class="no">delay</span> <span class="no">instruction</span> <span class="p">(</span><span class="no">addcc</span><span class="p">)</span> <span class="no">moves</span> <span class="no">zero</span> <span class="no">into</span> <span class="nv">%o1</span><span class="p">,</span>
+    <span class="err">!</span> <span class="nf">sets</span> <span class="no">the</span> <span class="no">zero</span> <span class="no">condition</span> <span class="no">code</span><span class="p">,</span> <span class="no">and</span> <span class="no">clears</span> <span class="no">the</span> <span class="no">other</span> <span class="no">conditions.</span>
+    <span class="err">!</span> <span class="nf">This</span> <span class="no">is</span> <span class="no">the</span> <span class="no">equivalent</span> <span class="no">result</span> <span class="no">to</span> <span class="no">a</span> <span class="no">long</span> <span class="no">umultiply</span> <span class="no">which</span> <span class="no">doesn</span><span class="err">&#39;</span><span class="no">t</span> <span class="no">overflow.</span>
+    <span class="err">!</span>
+    <span class="nf">retl</span>                        <span class="err">!</span> <span class="no">leaf</span> <span class="no">routine</span> <span class="no">return</span>
+    <span class="nf">addcc</span>       <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o1</span>
+</code></pre>
+</div>
+
+<p>For more information on the SPARC architecture, see <a href="http://www.sparc.com/standards/V8.pdf">The SPARC
+Architecture Manual</a>.</p>
+
+<p>The point of this is not for you to learn SPARC assembly, but to
+demonstrate that even &#39;modern&#39; computers may have different levels of
+support for some operations than you expect. The Python VM provides a
+single opcode to perform a multiply. But that opcode probably performs
+an integer (or long) multiply behind the scenes, and <em>that</em> may in turn
+wind up executing the routine above, if you happen to be on an old,
+SPARC-based computer.</p>
+
+<p>If you wind up writing a compiler for some target other than the Python
+VM, you will need to concern yourself with this stuff. On modern
+(superscalar) CPUs that include a MUL instruction, it will typically
+take 10 cycles, give or take 10. (Yes, it is possible to get a 0-cycle
+multiply. You need a deep pipeline, or a cache miss.) One of the reasons
+I like writing for the Python VM is that I can gloss over all these
+issues. :-)</p>
+
+<h2 id="toc_12">Generating Bytecode</h2>
+
+<p>With those questions answered, let&#39;s get on with generating bytecode!
+We&#39;ll start with a copy of the cradle from chapter 2, and a copy of the
+bytecode module from chapter 3. The first thing we&#39;ll have to change - and
+yes, this change will be to the cradle.py file - will be the behavior of the
+emit and emitln functions. First, because there is no emitln when generating
+bytecode, and second because we will be writing to a code object, not to a
+file.</p>
+
+<p>How should we test our code? In chapter 3 we created a CodeObject, then
+called the <code>instruction_match()</code> method on the object. I think that&#39;s a
+reasonable place for us to start, except that we can let the compile
+method return the code object. (Surprise! This is one of the behaviors
+of Python&#39;s built-in compile function, too.)</p>
+
+<p>Thus, a test case will look something like this:</p>
+<div class="highlight"><pre><code class="text">def test_something(self):
+    ... setup ...
+    co = compiler.compile(...)
+    asm = &quot;&quot;&quot; some assembly code &quot;&quot;&quot;
+    instructions_match(co, asm)
+</code></pre>
+</div>
+
+<p>Let&#39;s go ahead and write the first test case and store it into
+<code>tests/expr1_tests.py</code>. We&#39;ll extract the setup and test code into an
+<code>assertExpr()</code>: subroutine, to make writing test cases easy:</p>
+<div class="highlight"><pre><code class="text">from io import StringIO
+import unittest
+
+from ch04.bytecode import instructions_match
+from ch04 import expr1 as compiler
+
+class TestCompiler(unittest.TestCase):
+
+    def assertExpr(self, text, asm):
+        compiler.init(inp=StringIO(text))
+        co = compiler.compile()
+        instructions_match(co, asm)
+
+    def test_constant(self):
+        asm = &quot;&quot;&quot;
+            LOAD_CONST 1 (7)
+            RETURN_VALUE
+        &quot;&quot;&quot;
+        self.assertExpr(&quot;7&quot;, asm)
+</code></pre>
+</div>
+
+<p>Run the tests, and guess what? Nothing works. Well, let&#39;s get to solving
+the problems. First, let&#39;s implement an emit routine that uses a code object. This goes in cradle.py.</p>
+<div class="highlight"><pre><code class="text">    def emit(op, arg=None):
+        _Code.append(op, arg)
+</code></pre>
+</div>
+
+<p>Well, that was easy. But we&#39;ll have to add the module variable _Code,
+and some code in the init function to support it. Here&#39;s my version. Notice
+that I&#39;ve removed the _Output variable in favor of _Code:</p>
+<div class="highlight"><pre><code class="text">##### Output functions
+
+_Code = None
+&quot;&quot;&quot; CodeObject for compiled results. &quot;&quot;&quot;
+
+def emit(op, arg=None):
+    _Code.append(op, arg)
+
+##### Processing
+
+def init(inp=None, out=None, err=None):
+    global _Code, _Input, _Error
+    _Error = err if err is not None else sys.stderr
+    _Input = inp if inp is not None else _Input
+    # &#39;prime the pump&#39; to read first character, etc.
+    get_char()
+    _Code = bytecode.CodeObject()
+</code></pre>
+</div>
+
+<p>With that out of the way, let&#39;s implement a dumb expression parser that
+only recognizes a single number. First, copy the cradle over to a new file.
+Mine is called expr1.py. You&#39;ll remember that this is how we got
+started, so it should be easy:</p>
+<div class="highlight"><pre><code class="text">def compile():
+    expression()
+    return _Code
+
+def expression():
+    num = int(get_number())
+    emit(&#39;LOAD_CONST&#39;, num)
+    emit(&#39;RETURN_VALUE&#39;)
+</code></pre>
+</div>
+
+<p>Well, that seemed to work. But of course, it&#39;s not very challenging.  Let&#39;s
+go to a mixed model that can support additive operators or a single value:</p>
+<div class="highlight"><pre><code class="text">def expression():
+    expr_addop()
+
+def expr_addop():
+    expr_atom()
+    if Peek == &#39;+&#39;:
+        expr_add()
+    elif Peek == &#39;-&#39;:
+        expr_subtract()
+
+def expr_atom():
+    if Peek.isdigit():
+        atom = int(get_number())
+        emit(&#39;LOAD_CONST&#39;, atom)
+    else:
+        expected(&#39;Atom&#39;)
+
+def expr_add():
+    match(&#39;+&#39;)
+    # WHAT GOES HERE?
+</code></pre>
+</div>
+
+<p>And here we run into a problem in the <code>expr\_add</code> function. With the &quot;do
+it now!&quot; model that we were using in chapter 2, we passed around the
+intermediate results as parameters to the various functions. If you&#39;ll
+recall, the <code>expr\_addop</code> code from chapter 2 looked like this:</p>
+<div class="highlight"><pre><code class="text">def expr_addop():
+    result = expr_mulop()
+    while Peek is not None and Peek in &quot;+-&quot;:
+        if Peek == &quot;+&quot;:
+            result = expr_add(result)
+        elif Peek == &quot;-&quot;:
+            result = expr_subtract(result)
+    return result
+</code></pre>
+</div>
+
+<p>The expr_mulop code computed a multiplication, or possibly just
+returned an atom. Then if an addop was present, the initial value
+(result) was passed in to the add or subtract code, and a new result was
+computed, until eventually there were no more addops. Then the final
+result was returned.</p>
+
+<p>How are we going to pass the result around when we don&#39;t actually have
+the result? The result, like everything else, has to be managed in the
+bytecode we are writing!</p>
+
+<h2 id="toc_13">Register Management</h2>
+
+<p>Ironically, we&#39;re talking about <strong>register management,</strong> on a machine that
+has no registers. But that&#39;s okay, because if there <em>were</em> some registers,
+we would need to manage them, and we&#39;d be having the same conversation at
+the same place.</p>
+
+<p>Sometimes this is referred to as the <strong>calling convention(s)</strong> or as the
+<strong>ABI</strong> (application binary interface). But regardless, there are some
+questions that have to be answered, and this is the place to do it.</p>
+
+<p>On the Intel x86 platform, for example, there are registers. And certain
+opcodes, like MUL, use both the AX and DX registers to hold their
+results. So you can&#39;t leave any value that you need to keep in the DX
+register while doing a multiply. This begs the question, are there any
+registers that should always be saved? Who should save them - the
+caller, or the callee?</p>
+
+<p>It doesn&#39;t matter to us, because the answers are all the same: the
+Python VM has no registers, so everything has to go on the stack. But
+when you are writing a compiler for a different system, you will have to
+know what the questions are, and you will have to know the answers, too!</p>
+
+<p>Anyway, here are some questions. See if you can figure out the answers.
+(Hint: look up!)</p>
+
+<ol>
+<li><p>Q: How can we hold a number that we compute with expr_atom?</p>
+
+<p>A: &quot;the Python VM has no registers, so everything has to go on the
+stack.&quot;</p></li>
+<li><p>Q: How can we store a number temporarily, so that a following ADD
+or SUBTRACT operation can find it?</p>
+
+<p>A: ______</p></li>
+<li><p>Q: How can we store the arguments to a MULTIPLY or DIVIDE
+operation?</p>
+
+<p>A: ______</p></li>
+<li><p>Q: What about unary operations? How can we set up a number for
+those?</p>
+
+<p>A: ______</p></li>
+</ol>
+
+<p>So, how did you do? I hope you got all the answers right. And I
+certainly hope all your answers were the same. Because this is how we
+manage the values we want to pass around in the Python VM: they go on
+the stack!</p>
+
+<p>If we are going to do an add of two numbers, we set it up by putting the
+first number on the stack, then putting the second number on the stack, and
+then doing a BINARY_ADD, which takes (pops) two numbers off the stack, and
+puts (pushes) their sum on the stack.</p>
+
+<p>What we need to do, then, is to trust that all the steps before us have
+configured the stack the way it needs to be configured. Thus, if the add
+and subtract (and multiply, divide, modulus, ...) operators need a left
+operand to be on the stack, we just assume that it&#39;s there. (And write
+lots of test cases to make <em>damn sure</em> that we&#39;re right!) Let&#39;s give it
+a try:</p>
+<div class="highlight"><pre><code class="text">def expr_add():
+    # Assume first addend is already on stack.
+    match(&#39;+&#39;)
+    expr_atom() # Read second addend, put on stack.
+    emit(&#39;BINARY_ADD&#39;)
+</code></pre>
+</div>
+
+<p>And that&#39;s it! As long as we write all the other code correctly, to
+leave their results on the stack, we can assume that the incoming
+parameter is on the stack, and then add the numbers we need to add, and
+leave our own results on the stack.</p>
+
+<p>Let&#39;s catch up on our test cases, and then go a little bit farther. Add
+test cases for all four basic operations, plus some test cases for
+operator precedence. (Feel free to copy them from the tests we wrote in
+chapter 2!) Here are mine:</p>
+<div class="highlight"><pre><code class="text">def test_add(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (1)
+        LOAD_CONST 2 (8)
+        BINARY_ADD
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;1+8&quot;, asm)
+
+def test_subtract(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (8)
+        LOAD_CONST 2 (3)
+        BINARY_SUBTRACT
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;8-3&quot;, asm)
+
+def test_multiply(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (3)
+        LOAD_CONST 2 (2)
+        BINARY_MULTIPLY
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;3*2&quot;, asm)
+
+def test_divide(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (3)
+        LOAD_CONST 2 (2)
+        BINARY_FLOOR_DIVIDE
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;3/2&quot;, asm)
+</code></pre>
+</div>
+
+<p>The only tricky part is the opcode for division. Remember that I want
+all our expressions to use integer values, so we need to use the FLOOR
+instead of the TRUE division opcode.</p>
+
+<p>The code itself should be a snap, now. The precedence implementation is
+the same - add and subtract call mulop, multiply and divide call atom.
+If you have trouble, refer back to chapter 2.</p>
+
+<p>Once you have that working, let&#39;s add support for parentheses and multiple
+operators (if you didn&#39;t add them before). Again, we can take the test cases
+from chapter 2. Pay careful attention to the opcodes in
+test_multiple_binops, below. You have to understand how the additive and
+multiplicative precedence levels are working together to predict how the
+opcodes will be generated. Remember that mulop is basically &quot;greedy,&quot; while
+addop is basically &quot;lazy.&quot; This means that we interrupt the addop to insert
+a multiply, and a divide. That leaves the first argument (1) on the stack.
+It may seem strange, but we&#39;re counting on all the intervening processing to
+just leave our value alone on the stack until we get back to it. And it
+works!:</p>
+<div class="highlight"><pre><code class="text">def test_multiple_binops(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (1)
+        LOAD_CONST 2 (2)
+        LOAD_CONST 3 (4)
+        BINARY_MULTIPLY
+        LOAD_CONST 4 (3)
+        BINARY_FLOOR_DIVIDE
+        BINARY_ADD
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;1+2*4/3&quot;, asm)
+
+def test_paren_expr(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (1)
+        LOAD_CONST 2 (2)
+        BINARY_ADD
+        LOAD_CONST 3 (3)
+        LOAD_CONST 4 (4)
+        BINARY_ADD
+        BINARY_MULTIPLY
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;(1+2)*(3+4)&quot;, asm)
+</code></pre>
+</div>
+
+<h2 id="toc_14">Another Bug is Found</h2>
+
+<p>I made my <code>expr_atom</code> function recurse by calling expression. (As opposed
+to calling <code>expr_addop.)</code> And when I ran the <code>test_paren_expr</code> test, I
+discovered a bug: the <code>expression</code> function automatically appends a
+&#39;RETURN_VALUE&#39; opcode when it finishes. Oops! That will have to be moved to
+<code>compile,</code> instead. This is what the &#39;calling conventions&#39; mean: that
+function was expected to return a value. Returning a value means leaving it
+on the stack. Some other piece of code has to take the value off the stack.
+With that change, everything works.</p>
+
+<h2 id="toc_15">Unary Precedence</h2>
+
+<p>I promised in chapter 2 that I would re-visit the issue of unary
+operator precedence. Before we start working on adding unary operators
+to our code, let&#39;s do that.</p>
+
+<p>Most programming languages, inspired by the C/Algol family tree, accept
+unary operators at pretty much any location. You can negate any single
+term just by putting a &#39;-&#39; in front of it.</p>
+
+<p>But there are a lot of mathematicians who feel that this is pointless.
+If you need to subtract a number, just subtract it! Don&#39;t bother with
+adding the negative. They feel that &quot;a - b&quot; is easier to read, and more
+sensible, than &quot;a + -b&quot; or &quot;-b + a&quot;.</p>
+
+<p>In this case, why not move the unary from the highest precedence to the
+lowestr?. Instead of allowing a negative sign in front of every term, why
+not allow at most one negative sign, right at the front of an expression.
+Everything else can be handled by changing add to subtract, or
+subtract to add, or by wrapping parens around a sub-expression.</p>
+
+<p>My own, personal, bias is to make my expression parser act like C. But
+if you&#39;re more mathematically inclined, maybe you want to speed things
+up by eliminating all the unary minuses except one. That would change the
+<code>expression</code> code to something like:</p>
+<div class="highlight"><pre><code class="text">def expression():
+    if Peek == &#39;-&#39;:
+        negated = true
+        match(&#39;-&#39;)
+    else:
+        negated = false
+
+    # ... regular stuff goes here ...
+
+    if negated:
+        emit(&#39;UNARY_NEGATE&#39;)
+</code></pre>
+</div>
+
+<p>I&#39;m not going to do that. I&#39;m a stodgy old C programmer at heart, so I&#39;m
+going to follow the same path we followed back in chapter 2, and insert
+unary operators just below <code>expr_atom</code> in the precedence hierarchy:</p>
+<div class="highlight"><pre><code class="text">def expr_unary():
+    if Peek is None:
+        expected(&#39;UnaryOp or Atom&#39;)
+    if Peek in &quot;+-&quot;:
+        if Peek == &quot;+&quot;:
+            expr_unary_plus()
+        elif Peek == &quot;-&quot;:
+            expr_unary_minus()
+        else:
+            expected(&#39;UnaryOp&#39;)
+    else:
+        expr_atom()
+
+def expr_unary_plus():
+    match(&#39;+&#39;)
+    expr_atom()
+
+def expr_unary_minus():
+    match(&#39;-&#39;)
+    expr_atom()
+    emit(&#39;UNARY_NEGATIVE&#39;)
+</code></pre>
+</div>
+
+<p>All the references to <code>expr_atom()</code> in the multiple, divide, etc.,
+handlers will have to change to refer to <code>expr_unary().</code> The test cases
+are simple:</p>
+<div class="highlight"><pre><code class="text">def test_unary_minus(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (3)
+        UNARY_NEGATIVE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;-3&quot;, asm)
+
+def test_unary_plus(self):
+    asm = &quot;&quot;&quot;
+        LOAD_CONST 1 (8)
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;+8&quot;, asm)
+</code></pre>
+</div>
+
+<p>Great! Now we have a bytecode-generating version of our parser from chapter
+2. This is a great stopping point. If you&#39;ve got things to do, now would be
+a good time to take a break. Our next step will be to add function calls.</p>
+
+<h1 id="toc_16">Functions</h1>
+
+<p>Functions in Python seem like simple things. But there is a pretty wide
+amount of variety in how things are handled, depend on context. Let&#39;s look
+at some examples:</p>
+
+<ul>
+<li>There are <em>builtin</em> functions that call C code directly, instead of
+bytecode.</li>
+<li>Global functions are what most people thing of: a <code>def func():</code> appears
+somewhere in a module, and it is called in other places.</li>
+<li>Method calls, which look like <code>obj.meth(args),</code> eventually resolve down
+to function calls.</li>
+<li>Functions can be nested inside classes (see above) or inside other
+functions. Nested functions aren&#39;t visible everywhere.</li>
+<li>Functions can also be <em>closures</em> if they make reference to a free variable
+that isn&#39;t global.</li>
+<li>Functions can be <em>generators</em> or <em>coroutines.</em></li>
+<li>Functions can be imported from a different module.</li>
+</ul>
+
+<p>Whew! That&#39;s a lot of different things to be hiding behind a set of
+parentheses! Let&#39;s simplify things as much as we can, and stick to plain old
+global-scope bytecode functions. I think it&#39;s time to do an experiment with
+the Python interpreter:</p>
+<div class="highlight"><pre><code class="text">&gt;&gt;&gt; def g():
+...     return 1
+...
+&gt;&gt;&gt; def f():
+...     x = g()
+...     print(&quot;x is: &quot;)
+...     print(x)
+...
+&gt;&gt;&gt; from dis import dis as da
+&gt;&gt;&gt; da(f)
+  2           0 LOAD_GLOBAL              0 (g)
+              3 CALL_FUNCTION            0 (0 positional, 0 keyword pair)
+              6 STORE_FAST               0 (x)
+
+  3           9 LOAD_GLOBAL              1 (print)
+             12 LOAD_CONST               1 (&#39;x is: &#39;)
+             15 CALL_FUNCTION            1 (1 positional, 0 keyword pair)
+             18 POP_TOP
+
+  4          19 LOAD_GLOBAL              1 (print)
+             22 LOAD_FAST                0 (x)
+             25 CALL_FUNCTION            1 (1 positional, 0 keyword pair)
+             28 POP_TOP
+             29 LOAD_CONST               0 (None)
+             32 RETURN_VALUE
+</code></pre>
+</div>
+
+<p>Looking at the first three lines of the disassembly, we can see the name
+lookup, the call, and the assignment of hte result into &#39;x&#39;. That doesn&#39;t
+seem too hard for us to model.</p>
+
+<p>Looking further down, we see the call to print with one argument generates a
+<code>LOAD_CONST</code> opcode and a <code>POP_TOP</code> to handle the fact that the return
+value is being thrown away. Again, not too much to handle.</p>
+
+<p>What we know so far is that the function being called goes onto the stack
+first. Then the arguments go on the stack. We don&#39;t know in what order, but
+I&#39;m guessing left to right. We&#39;ll check in a minute. Then the call is made.</p>
+
+<p>Inside the function, the callee apparently cleans up the stack, or maybe the
+call or return opcodes handle that. The callee returns a single value, which
+is the result of the function.</p>
+
+<p>Let&#39;s look at the order of arguments:</p>
+<div class="highlight"><pre><code class="text">&gt;&gt;&gt; def f():
+...     g(1,2,3)
+...
+&gt;&gt;&gt; da(f)
+  2           0 LOAD_GLOBAL              0 (g)
+              3 LOAD_CONST               1 (1)
+              6 LOAD_CONST               2 (2)
+              9 LOAD_CONST               3 (3)
+             12 CALL_FUNCTION            3 (3 positional, 0 keyword pair)
+             15 POP_TOP
+             16 LOAD_CONST               0 (None)
+             19 RETURN_VALUE
+</code></pre>
+</div>
+
+<p>Yep, it&#39;s left-to-right. The arguments 1,2,3 go on with the leftmost first,
+the rightmost last on the stack. Let&#39;s look at how we could write the code
+to generate this.</p>
+
+<p>First, we would have to recognize a function call. That should be
+straight-forward: a name followed by an opening parenthesis like &#39;f(&#39;. When
+we see that, we know it&#39;s a function call. (As opposed to a paren followed
+by a name, like &#39;(f&#39;, which is just a nested expression.)</p>
+
+<p>Once we have a parenthesis, we need to match opening and closing parens
+until we find our corresponding closing paren. The individual parameter
+values will be nested expressions, separated by commas. This should handle
+the balancing of parentheses.</p>
+
+<p>Where does a function call fit in the precedence chain? Well, according to C
+it is pretty much the highest priority operation. The <em>postfix</em> operators,
+which includes x++, x--, a[i], and f(x), are higher precedene than the unary
+prefix operators. (This makes sense: -f(x) is negating the result of the
+call, not calling a negated function.)</p>
+
+<p>So we can insert <code>expr_postfix</code> between <code>expr_unary</code> and <code>expr_atom</code>
+in our parser logic, and check for a trailing paren. (In C and Python, a
+function might return a reference to another function, so that f()() is a
+valid expression. I&#39;m going to leave that out, at least for now.)</p>
+
+<p>Here&#39;s a quick first cut:
+<code>
+def expr_postfix():
+    expr_atom()
+    if Peek == &#39;(&#39;:
+        match(&#39;(&#39;)
+        match(&#39;)&#39;)
+</code></p>
+
+<p>That function only recognizes calls like <code>f().</code> But it does recognize
+them!</p>
+
+<h1 id="toc_17">Assignments</h1>
+
+<h1 id="toc_18">Multi-Character Tokens</h1>
+
+<h1 id="toc_19">White Space</h1>
+
+  </div>
+</div>
+
+    </section>
+  </body>
+</html>
