@@ -18,13 +18,13 @@
       <div class="content">
   <div id="chapter">
     <h1></h1>
-    <h1 id="toc_8">More Expressions</h1>
+    <h1 id="toc_301">More Expressions</h1>
 
 <p>Now, let&#39;s see what our bytecode module can do! In this chapter, we&#39;ll be
 integrating our bytecode module with the expression parser, and then
 extending our parser to add more capabilities.</p>
 
-<h2 id="toc_9">Generating Bytecode</h2>
+<h2 id="toc_302">Generating Bytecode</h2>
 
 <p>To get started, let&#39;s recap the capabilities that our expression parser
 had at the end of chapter 2. We could:</p>
@@ -57,7 +57,7 @@ issues that may not be clear to you: why does our parser just
 &#39;magically&#39; support the correct order of evaluation, and why are
 dedicated opcodes significant?</p>
 
-<h2 id="toc_10">Order of Evaluation</h2>
+<h2 id="toc_303">Order of Evaluation</h2>
 
 <p>Just exactly how does our parser manage to get the order of evaluation
 correct? Because we told it to!</p>
@@ -83,7 +83,7 @@ expressions in the same order we have been computing the results, then
 whatever code we generate should also compute correct results, since it
 will model its order of evaluation on the order we are using!</p>
 
-<h2 id="toc_11">Dedicated Opcodes</h2>
+<h2 id="toc_304">Dedicated Opcodes</h2>
 
 <p>Believe it or not, having dedicated opcodes to support things like
 multiplication is a relatively recent thing. In the 1990&#39;s, the SPARC
@@ -250,7 +250,7 @@ multiply. You need a deep pipeline, or a cache miss.) One of the reasons
 I like writing for the Python VM is that I can gloss over all these
 issues. :-)</p>
 
-<h2 id="toc_12">Generating Bytecode</h2>
+<h2 id="toc_305">Generating Bytecode</h2>
 
 <p>With those questions answered, let&#39;s get on with generating bytecode!
 We&#39;ll start with a copy of the cradle from chapter 2, and a copy of the
@@ -395,7 +395,7 @@ result was returned.</p>
 the result? The result, like everything else, has to be managed in the
 bytecode we are writing!</p>
 
-<h2 id="toc_13">Register Management</h2>
+<h2 id="toc_306">Register Management</h2>
 
 <p>Ironically, we&#39;re talking about <strong>register management,</strong> on a machine that
 has no registers. But that&#39;s okay, because if there <em>were</em> some registers,
@@ -558,7 +558,7 @@ def test_paren_expr(self):
 </code></pre>
 </div>
 
-<h2 id="toc_14">Another Bug is Found</h2>
+<h2 id="toc_307">Another Bug is Found</h2>
 
 <p>I made my <code>expr_atom</code> function recurse by calling expression. (As opposed
 to calling <code>expr_addop.)</code> And when I ran the <code>test_paren_expr</code> test, I
@@ -569,7 +569,7 @@ function was expected to return a value. Returning a value means leaving it
 on the stack. Some other piece of code has to take the value off the stack.
 With that change, everything works.</p>
 
-<h2 id="toc_15">Unary Precedence</h2>
+<h2 id="toc_308">Unary Precedence</h2>
 
 <p>I promised in chapter 2 that I would re-visit the issue of unary
 operator precedence. Before we start working on adding unary operators
@@ -658,7 +658,7 @@ def test_unary_plus(self):
 2. This is a great stopping point. If you&#39;ve got things to do, now would be
 a good time to take a break. Our next step will be to add function calls.</p>
 
-<h1 id="toc_16">Functions</h1>
+<h1 id="toc_309">Functions</h1>
 
 <p>Functions in Python seem like simple things. But there is a pretty wide
 amount of variety in how things are handled, depend on context. Let&#39;s look
@@ -780,11 +780,11 @@ def expr_postfix():
 <p>That function only recognizes calls like <code>f().</code> But it does recognize
 them!</p>
 
-<h1 id="toc_17">Assignments</h1>
+<h1 id="toc_310">Assignments</h1>
 
-<h1 id="toc_18">Multi-Character Tokens</h1>
+<h1 id="toc_311">Multi-Character Tokens</h1>
 
-<h1 id="toc_19">White Space</h1>
+<h1 id="toc_312">White Space</h1>
 
   </div>
 </div>
