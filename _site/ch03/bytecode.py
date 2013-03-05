@@ -143,6 +143,25 @@ class CodeObject:
         print("Got bytecode: {!r}".format(self.co_code))
         pass
 
+    def compile(self):
+        """
+        Compile the current state of the object into a Python `CodeType`
+        object. Because of data format conversions, this method can be
+        called more than once as the object changes.
+
+        Return a new CodeType object.
+        """
+        kwonlyargs =  0
+        freevars = ()
+        cellvars = ()
+        ct = types.CodeType(
+            self.co_argcount, kwonlyargs, self.co_nlocals, self.co_stacksize,
+            self.co_flags, bytes(self.co_code), tuple(self.co_consts), 
+            tuple(self.co_names), tuple(self.co_varnames), self.co_filename,
+            self.co_name, self.co_firstlineno, bytes(self.co_lnotab),
+            freevars, cellvars)
+        return ct
+
     def _decode_argindex(self, it, extended_arg):
         """Decodes an argument index, including support for extended_arg."""
         argindex = next(it)
@@ -262,6 +281,12 @@ class CodeObject:
             else:
                 extended_arg = None
             yield tpl
+
+    def to_function(self, globs=None, name=None, argvals=None, closure=None):
+        if globs is None:
+            globs = globals()
+        code = self.compile()
+        return types.FunctionType(code, globs, name, argvals, closure)
 
 _Match_line_re = re.compile(
     r'\s* (?P<lineno> \d+ )? \s* (?P<offset> \d+ )?' \

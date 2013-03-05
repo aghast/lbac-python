@@ -954,8 +954,8 @@ So let's add that to our code::
         argvalue = self.co_varnames[argindex]
         return (lineno, offset, labels, opnum, opname, argindex, argvalue)
 
-A Bug is Found
-~~~~~~~~~~~~~~
+Another Bug is Found
+~~~~~~~~~~~~~~~~~~~~
 
 With that change, I get a new failure::
 
@@ -993,6 +993,180 @@ the fall to `meth()` and try again::
     >>> bc.instructions_match(co, expected)
     True
 
+But Does it Run?
+----------------
+
+Presently, our bytecode module handles function parameters (which is more
+than our parser from chapter 2 does!) and all of the no-argument opcodes.
+Because the Python VM is stack based, all the math operations are
+no-argument opcodes.  They assume that their operands are already on the
+stack, and they leave their results on the stack. Just a little bit of
+coding here has carried us a long way!
+
+But there is one last hurdle that we need to clear. One more thing that we
+just have to have before we can wrap this up: we need bytecode that we can
+actually *run!*
+
+So far, all the work we have done has filled up an array of bytes. And our
+test cases agree, those bytes do appear to be the exact set of bytes that we
+want. But that's no quite as satisfying as being able to call a function
+from our Python and have it work. So let's do that.
+
+From Code to Function
+~~~~~~~~~~~~~~~~~~~~~
+
+A little bit of Google will take you to the ``exec()`` documentation in
+Python, which explicitly states, "This function can also be used to execute
+arbitrary code objects (such as those created by compile())." Well, that's pretty clear. But I don't want to return a binary thing that
+has to be passed to ``exec().`` At least, not yet. I want a *function!*
+
+A little more Google leads us to ``FunctionType,`` defined in the ``types``
+module. In the Django sources, there are some examples of creating a
+function using the ``FunctionType(...)`` constructor. Running ``pydoc
+types.FunctionType`` shows a definition like this:
+
+```
+types.FunctionType = class function(object)
+ |  function(code, globals[, name[, argdefs[, closure]]])
+ |
+ |  Create a function object from a code object and a dictionary.
+ |  The optional name string overrides the name from the code object.
+ |  The optional argdefs tuple specifies the default argument values.
+ |  The optional closure tuple supplies the bindings for free variables.
+```
+
+If I read this right, the ``function()`` constructor is renamed to
+``FunctionType`` in the module. And it can be called with a code object, a
+dictionary of globals, and some other stuff that is optional. Let's try that
+in the interpreter.
+
+```
+>>> def f():
+...     print("Hello, world!")
+...
+>>> co = f.__code__
+>>> import types
+>>> newfn = types.FunctionType(co, globals(), 'newfie')
+>>> newfn.__name__
+'newfie'
+>>> newfn()
+Hello, world!
+```
+
+Well, THAT works just fine. We could add that as a helper function, but it's
+only one line - let's just remember it for a bit.
+
+Next comes the issue of how to convert our *simulated* class, =CodeObject,=
+into an actual =code object.= Sure enough, there is a ``types.CodeType``
+defined, and it has a help page. The constructor is a little complex:
+
+```
+types.CodeType = class code(object)
+ |  code(argcount, kwonlyargcount, nlocals, stacksize, flags, codestring,
+ |        constants, names, varnames, filename, name, firstlineno,
+ |        lnotab[, freevars[, cellvars]])
+ |
+ |  Create a code object.  Not for the faint of heart.
+```
+
+So, as long as we get the **thirteen** (!!!) positional arguments correct, it
+shouldn't be any trouble at all. (This is one of those times when named
+arguments make a huge amount of sense.)
+
+I'll tell it the stacksize is "2", since that seems safe - we're only
+pushing one thing on the stack, so it should be twice as much space as we
+need.
+
+```
+>>> from ch03 import bytecode
+>>> co = bytecode.CodeObject()
+>>> co.append('LOAD_CONST', 77)
+>>> co.append('RETURN_VALUE')
+>>> import types
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, co.co_code, co.co_consts, names=[], varnames=[], filename='input', name='test_code_type', firstlineno=1, lnotab=[])
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: code() takes at least 13 arguments (7 given)
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, co.co_code, co.co_consts, [], [], 'input', 'test_code_type', 1, [])Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: must be bytes, not bytearray
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, bytes(co.co_code), co.co_consts, [], [], 'input', 'test_code_type', 1, [])
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: must be tuple, not list
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, bytes(co.co_code), co.co_consts, (), (), 'input', 'test_code_type', 1, [])
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: must be tuple, not list
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, bytes(co.co_code), co.co_consts, (), (), 'input', 'test_code_type', 1, ())
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: must be tuple, not list
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, bytes(co.co_code), tuple(co.co_consts), (), (), 'input', 'test_code_type', 1, ())
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: must be bytes, not tuple
+>>> code_type = types.CodeType(0, 0, 0, 2, 0, bytes(co.co_code), tuple(co.co_consts), (), (), 'input', 'test_code_type', 1, bytes())
+```
+
+That was frustrating. But we finally have something that might be a code
+object we can add to a function. Let's give that a try (in the same
+interpreter session!):
+
+```
+>>> newfn = types.FunctionType(code_type, globals(), 'return77')
+>>> newfn()
+77
+```
+
+Woo-hoo!! Now we know how to turn our byte codes into a callable Python
+function. Let's add a =compile()= method to our CodeObject, and we'll add a
+=to_function()= method, as well. Here's a test case:
+
+```
+def test_return77(self):
+    co = CodeObject()
+    co.append('LOAD_CONST', 77)
+    co.append('RETURN_VALUE')
+    ret77 = co.to_function()
+    self.assertEqual(77, ret77())
+```
+
+And here's the code I used:
+
+```
+def compile(self):
+    """
+    Compile the current state of the object into a Python `CodeType`
+    object. Because of data format conversions, this method can be
+    called more than once as the object changes.
+
+    Return a new CodeType object.
+    """
+    kwonlyargs =  0
+    freevars = ()
+    cellvars = ()
+    ct = types.CodeType(
+        self.co_argcount, kwonlyargs, self.co_nlocals, self.co_stacksize,
+        self.co_flags, bytes(self.co_code), tuple(self.co_consts), 
+        tuple(self.co_names), tuple(self.co_varnames), self.co_filename,
+        self.co_name, self.co_firstlineno, bytes(self.co_lnotab),
+        freevars, cellvars)
+    return ct
+
+def to_function(self, globs=None, name=None, argvals=None, closure=None):
+    if globs is None:
+        globs = globals()
+    code = self.compile()
+    return types.FunctionType(code, globs, name, argvals, closure)
+```
+
+Presently, our bytecode module handles function parameters (which is more
+than our parser from chapter 2 does!) and all of the no-argument opcodes.
+Because the Python VM is stack based, all the math operations are
+no-argument opcodes.  They assume that their operands are already on the
+stack, and they leave their results on the stack.
+
 At Last!
 --------
 
@@ -1002,12 +1176,10 @@ code is clean enough that filling in those methods will be straightforward.
 When we stumble upon an unimplemented method from here on, we can just fill
 it in and keep coding.
 
-Presently, our bytecode module handles function parameters (which is more
-than our parser does!) and all of the no-argument opcodes. Because the
-Python VM is stack based, all the math operations are no-argument opcodes.
-They assume that their operands are already on the stack, and they leave
-their results on the stack. Just a little bit of coding here has carried us
-a long way!
+If you're following along, there's one thing the bytecode library can't do,
+now, that I know we'll eventually need: it doesn't support all the opcodes
+for printing a string. Until those opcodes are added, you can't print
+"Hello, world!" You may want to take a minute to add those.
 
 .. rubric:: Footnotes
 

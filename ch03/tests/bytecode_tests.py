@@ -28,5 +28,12 @@ class TestBytecode(unittest.TestCase):
        """
         co.check_bytecode(expected)
 
+    def test_return77(self):
+        co = CodeObject()
+        co.append('LOAD_CONST', 77)
+        co.append('RETURN_VALUE')
+        ret77 = co.to_function()
+        self.assertEqual(77, ret77())
+
 if __name__ == '__main__':
     unittest.main()
