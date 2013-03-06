@@ -674,8 +674,12 @@ of strings. That's good for testing, but it isn't as satisfying as having
 code actually run. So let's see if our code will actually run - by which
 I mean 'generate bytecodes that do what we expect inside a live Python VM.'
 
-Presently, we are modeling a 'code object' from Python with our CodeObject
-class. 
+Presently, we are modeling a 'code object' from Python with our =CodeObject=
+class. But a =CodeObject,= or even a 'code object', is not a function. A
+function is something we can call from Python. A code object is just a bunch
+of bits.
+
+So let's look at what it takes to produce a c
 
 Variables
 =========
