@@ -68,13 +68,7 @@ class CodeObject:
         self.append_bytecode(opnum, None)
 
     def _append_opcode_const(self, opnum, arg):
-        value_list = self.co_consts
-        try:
-            arg_index = value_list.index(arg)
-        except ValueError:
-            arg_index = len(value_list)
-            value_list.append(arg)
-        self.append_bytecode(opnum, arg_index)
+        self._append_table_helper(opnum, arg, self.co_consts)
 
     def _append_opcode_compare(self, opnum, arg):
         value_list = opcode.cmp_op
@@ -95,13 +89,21 @@ class CodeObject:
         raise NotImplementedError("not yet")
 
     def _append_opcode_localvar(self, opnum, arg):
-        raise NotImplementedError("not yet")
+        self._append_table_helper(opnum, arg, self.co_varnames)
 
     def _append_opcode_name(self, opnum, arg):
-        raise NotImplementedError("not yet")
+        self._append_table_helper(opnum, arg, self.co_names)
 
     def _append_opcode_numargs(self, opnum, arg):
         raise NotImplementedError("not yet")
+
+    def _append_table_helper(self, opnum, arg, table):
+        try:
+            arg_index = table.index(arg)
+        except ValueError:
+            arg_index = len(table)
+            table.append(arg)
+        self.append_bytecode(opnum, arg_index)
 
     _append_dispatch = [ _append_invalid_opcode ] * 256
     _append_strategy = {
@@ -203,14 +205,6 @@ class CodeObject:
         argvalue = opcode.cmp_op[argindex]
         return (lineno, offset, labels, opnum, opname, argindex, argvalue)
 
-    def _decode_opcode_const(self, opnum, it, offset, extended_arg):
-        """Return a tuple of (lineno, offset, (labels), opnum, opname,
-        argindex, argvalue)."""
-        lineno, labels, opname = self._decode_common(opnum, offset)
-        argindex = self._decode_argindex(it, extended_arg)
-        argvalue = self.co_consts[argindex]
-        return (lineno, offset, labels, opnum, opname, argindex, argvalue)
-
     def _decode_opcode_freevar(self, opnum, it, offset, extended_arg):
         """Return a tuple of (lineno, offset, (labels), opnum, opname,
         argindex, argvalue)."""
@@ -237,7 +231,10 @@ class CodeObject:
     def _decode_opcode_name(self, opnum, it, offset, extended_arg):
         """Return a tuple of (lineno, offset, (labels), opnum, opname,
         argindex, argvalue)."""
-        raise NotImplementedError("not yet")
+        lineno, labels, opname = self._decode_common(opnum, offset)
+        argindex = self._decode_argindex(it, extended_arg)
+        argvalue = self.co_names[argindex]
+        return (lineno, offset, labels, opnum, opname, argindex, argvalue)
 
     def _decode_opcode_numargs(self, opnum, it, offset, extended_arg):
         """Return a tuple of (lineno, offset, (labels), opnum, opname,
@@ -246,15 +243,15 @@ class CodeObject:
 
     _decode_dispatch = [ _decode_invalid_opcode ] * 256
     _decode_strategy = {
-        _decode_opcode_noarg  : [ x for x in range(opcode.HAVE_ARGUMENT - 1) ],
-        _decode_opcode_compare: opcode.hascompare,
-        _decode_opcode_const  : opcode.hasconst,
-        _decode_opcode_freevar: opcode.hasfree,
-        _decode_opcode_jumpabs: opcode.hasjabs,
-        _decode_opcode_jumprel: opcode.hasjrel,
+        _decode_opcode_noarg   : [ x for x in range(opcode.HAVE_ARGUMENT - 1) ],
+        _decode_opcode_compare : opcode.hascompare,
+        _decode_opcode_hasconst: opcode.hasconst,
+        _decode_opcode_freevar : opcode.hasfree,
+        _decode_opcode_jumpabs : opcode.hasjabs,
+        _decode_opcode_jumprel : opcode.hasjrel,
         _decode_opcode_localvar: opcode.haslocal,
-        _decode_opcode_name   : opcode.hasname,
-        _decode_opcode_numargs: opcode.hasnargs,
+        _decode_opcode_name    : opcode.hasname,
+        _decode_opcode_numargs : opcode.hasnargs,
     }
 
     for strategy, oplist in _decode_strategy.items():

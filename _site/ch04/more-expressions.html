@@ -18,13 +18,13 @@
       <div class="content">
   <div id="chapter">
     <h1></h1>
-    <h1 id="toc_8">More Expressions</h1>
+    <h1 id="toc_3712">More Expressions</h1>
 
 <p>Now, let&#39;s see what our bytecode module can do! In this chapter, we&#39;ll be
 integrating our bytecode module with the expression parser, and then
 extending our parser to add more capabilities.</p>
 
-<h2 id="toc_9">Generating Bytecode</h2>
+<h2 id="toc_3713">Generating Bytecode</h2>
 
 <p>To get started, let&#39;s recap the capabilities that our expression parser
 had at the end of chapter 2. We could:</p>
@@ -57,7 +57,7 @@ issues that may not be clear to you: why does our parser just
 &#39;magically&#39; support the correct order of evaluation, and why are
 dedicated opcodes significant?</p>
 
-<h2 id="toc_10">Order of Evaluation</h2>
+<h2 id="toc_3714">Order of Evaluation</h2>
 
 <p>Just exactly how does our parser manage to get the order of evaluation
 correct? Because we told it to!</p>
@@ -83,7 +83,7 @@ expressions in the same order we have been computing the results, then
 whatever code we generate should also compute correct results, since it
 will model its order of evaluation on the order we are using!</p>
 
-<h2 id="toc_11">Dedicated Opcodes</h2>
+<h2 id="toc_3715">Dedicated Opcodes</h2>
 
 <p>Believe it or not, having dedicated opcodes to support things like
 multiplication is a relatively recent thing. In the 1990&#39;s, the SPARC
@@ -250,7 +250,7 @@ multiply. You need a deep pipeline, or a cache miss.) One of the reasons
 I like writing for the Python VM is that I can gloss over all these
 issues. :-)</p>
 
-<h2 id="toc_12">Generating Bytecode</h2>
+<h2 id="toc_3716">Generating Bytecode</h2>
 
 <p>With those questions answered, let&#39;s get on with generating bytecode!
 We&#39;ll start with a copy of the cradle from chapter 2, and a copy of the
@@ -395,7 +395,7 @@ result was returned.</p>
 the result? The result, like everything else, has to be managed in the
 bytecode we are writing!</p>
 
-<h2 id="toc_13">Register Management</h2>
+<h2 id="toc_3717">Register Management</h2>
 
 <p>Ironically, we&#39;re talking about <strong>register management,</strong> on a machine that
 has no registers. But that&#39;s okay, because if there <em>were</em> some registers,
@@ -558,7 +558,7 @@ def test_paren_expr(self):
 </code></pre>
 </div>
 
-<h2 id="toc_14">Another Bug is Found</h2>
+<h2 id="toc_3718">Another Bug is Found</h2>
 
 <p>I made my <code>expr_atom</code> function recurse by calling expression. (As opposed
 to calling <code>expr_addop.)</code> And when I ran the <code>test_paren_expr</code> test, I
@@ -569,7 +569,7 @@ function was expected to return a value. Returning a value means leaving it
 on the stack. Some other piece of code has to take the value off the stack.
 With that change, everything works.</p>
 
-<h2 id="toc_15">Unary Precedence</h2>
+<h2 id="toc_3719">Unary Precedence</h2>
 
 <p>I promised in chapter 2 that I would re-visit the issue of unary
 operator precedence. Before we start working on adding unary operators
@@ -658,27 +658,384 @@ def test_unary_plus(self):
 2. This is a great stopping point. If you&#39;ve got things to do, now would be
 a good time to take a break.</p>
 
-<h1 id="toc_16">Does it Run?</h1>
-
-<p>So far, we&#39;ve generated a lot of bytecode in binary form, and we&#39;ve been
-testing it by disassembling the bytecodes and comparing them against a list
-of strings. That&#39;s good for testing, but it isn&#39;t as satisfying as having
-code actually run. So let&#39;s see if our code will actually run - by which
-I mean &#39;generate bytecodes that do what we expect inside a live Python VM.&#39;</p>
-
-<p>Presently, we are modeling a &#39;code object&#39; from Python with our CodeObject
-class. </p>
-
-<h1 id="toc_17">Variables</h1>
+<h1 id="toc_3720">Variables</h1>
 
 <p>We have an expression compiler that right now only supports constant
 expressions. The obvious next thing to add would be variables. With
 variables, we can build a desktop calculator to match the best of them! And
 also, we&#39;ll be on our way to loops and subroutines.</p>
 
-<h1 id="toc_18">Assignments</h1>
+<p>Let&#39;s start off by seeing how Python does it. We&#39;ll feed the Python compiler
+three different kinds of symbols: paramters, local variables, and global
+variables.</p>
+<div class="highlight"><pre><code class="text">&gt;&gt;&gt; def f(x):
+...     y = x+1
+...     global g
+...     g = y+x
+...     return g
+...
+&gt;&gt;&gt; dis.dis(f)
+  2           0 LOAD_FAST                0 (x)
+              3 LOAD_CONST               1 (1)
+              6 BINARY_ADD
+              7 STORE_FAST               1 (y)
 
-<h1 id="toc_19">Functions</h1>
+  4          10 LOAD_FAST                1 (y)
+             13 LOAD_FAST                0 (x)
+             16 BINARY_ADD
+             17 STORE_GLOBAL             0 (g)
+
+  5          20 LOAD_GLOBAL              0 (g)
+             23 RETURN_VALUE
+</code></pre>
+</div>
+
+<p>What we can see is that Python treats accesses to parameters and accesses to
+local variables the same - it uses the same opcode, <code>LOAD_FAST,</code> for both
+parameter &#39;x&#39; and local variable &#39;y&#39;. (That&#39;s <em>definitely</em> not true in other
+environments.) And global variables are accessed using the <code>LOAD_GLOBAL</code> and
+<code>STORE_GLOBAL</code> instructions, instead of the ..._FAST ones.</p>
+
+<p>That seems pretty straightforward. Now we just have to make sure we keep our
+variables numbered correctly. The append logic in bytecode should handle
+this, except that we haven&#39;t written it yet. So I guess that&#39;s what we
+should do first. Here are the specifications for the LOAD_FAST and
+LOAD_GLOBAL opcodes, from the =dis= module page:</p>
+<div class="highlight"><pre><code class="text">LOAD_FAST(var_num)
+    Pushes a reference to the local co_varnames[var_num] onto the stack.
+
+LOAD_GLOBAL(namei)
+    Loads the global named co_names[namei] onto the stack.
+</code></pre>
+</div>
+
+<p>Having identified which list of names we should search, let&#39;s get coding!</p>
+<div class="highlight"><pre><code class="text">def _append_opcode_localvar(self, opnum, arg):
+    value_list = self.co_varnames
+    try:
+        arg_index = value_list.index(arg)
+    except ValueError:
+        arg_index = len(value_list)
+        value_list.append(arg)
+    self.append_bytecode(opnum, arg_index)
+
+def _append_opcode_name(self, opnum, arg):
+    value_list = self.co_names
+    try:
+        arg_index = value_list.index(arg)
+    except ValueError:
+        arg_index = len(value_list)
+        value_list.append(arg)
+    self.append_bytecode(opnum, arg_index)
+</code></pre>
+</div>
+
+<p>That should take care of both the ..._FAST and the ..._GLOBAL instructions
+for variable load and store. Now let&#39;s refactor the common code into a
+helper method, and fix up the constant handler already in bytecode.py.</p>
+<div class="highlight"><pre><code class="text">def _append_table_helper(self, opnum, arg, table):
+    try:
+        arg_index = table.index(arg)
+    except ValueERror:
+        arg_index = len(table)
+        table.append(arg)
+    self.append_bytecode(opnum, arg_index)
+
+def _append_opcode_localvar(self, opnum, arg):
+    self._append_table_helper(opnum, arg, self.co_varnames)
+
+def _append_opcode_name(self, opnum, arg):
+    self._append_table_helper(opnum, arg, self.co_names)
+
+def _append_opcode_const(self, opnum, arg):
+    self._append_opcode_const(self, opnum, arg, self.co_consts)
+</code></pre>
+</div>
+
+<p>With that fixed, let&#39;s talk about how we should do variables in expressions.
+I think we&#39;ll stick to global variables, at first, so we can use them
+without having to deal with assignment statements. When we parse variables
+in an expression, they are going to be read-only. We&#39;ll deal with assignment
+later.</p>
+
+<p>No assignments means that any reference we make to a variable is a read.
+That lets us write a function like expr_read_var. The function will take a
+name, and emit a reference that loads the name into the stack.</p>
+<div class="highlight"><pre><code class="text">def expr_read_var():
+    varname = get_identifier()
+    emit(&#39;LOAD_GLOBAL&#39;, varname)
+</code></pre>
+</div>
+
+<p>We can integrate this into the <code>expr_atom</code> function:
+<code>
+def expr_atom(self):
+    if Peek == &#39;(&#39;:
+        match(&#39;(&#39;)
+        expression()
+        match(&#39;)&#39;)
+    elif Peek.isalpha():
+        expr_read_var()
+    else:
+        num = int(get_number())
+        emit(&#39;LOAD_CONST&#39;, num)
+</code>
+Don&#39;t forget the test cases:
+```
+def test_read_variable(self):
+    asm = &quot;&quot;&quot;
+        LOAD_FAST 0 (a)
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;a&quot;, asm)</p>
+
+<p>def test_read_2_variables(self):
+    asm = &quot;&quot;&quot;
+        LOAD_FAST (a)
+        LOAD_CONST (1)
+        BINARY_ADD
+        LOAD_FAST (b)
+        LOAD_CONST (2)
+        BINARY_ADD
+        BINARY_MULTIPLY
+        RETURN_VALUE
+    &quot;&quot;&quot;
+    self.assertExpr(&quot;(a+1)*(b+2)&quot;, asm)
+<code>
+That is GREAT! That was pretty easy to code, and the test cases passed as
+soon as I got a typo fixed. I&#39;m feeling so good about how that went, that
+I&#39;m tempted to add some more capability. Let&#39;s add global symbols! We&#39;ll
+need to be able to differentiate between global and local variables, but
+that should be pretty easy. Here&#39;s a simple implementation:
+</code>
+def is_global(name):
+    return False</p>
+
+<p>def expr_read_var():
+    varname = get_identifier()
+    if is_global(varname):
+        emit(&#39;LOAD_GLOBAL&#39;, varname)
+    else:
+        emit(&#39;LOAD_FAST&#39;, varname)
+<code>
+That&#39;s kind of funny. But C already has a protocol for local versus global
+variables: first letter upper-case. Since our variables are only one letter
+long, we can still get away with it.
+</code>
+def is_global(name):
+    return name[0].isupper()
+<code>
+Well, it _almost_ works:
+</code>
+  File &quot;/Users/austin/git/lbac/ch04/bytecode.py&quot;, line 242, in
+<em>decode_opcode_name
+    raise NotImplementedError(&quot;not yet&quot;)
+NotImplementedError: not yet
+<code>
+Apparently, when we add something to the _encoder,_ we have to add it to the
+_decoder,_ as well! A quick fix...
+</code>
+def _decode_opcode_name(self, opnum, it, offset, extended_arg):
+    &quot;&quot;&quot;Return a tuple of (lineno, offset, (labels), opnum, opname,
+    argindex, argvalue).&quot;&quot;&quot;
+    lineno, labels, opname = self.</em>decode_common(opnum, offset)
+    argindex = self._decode_argindex(it, extended_arg)
+    argvalue = self.co_names[argindex]
+    return (lineno, offset, labels, opnum, opname, argindex, argvalue)
+```</p>
+
+<p>... and we&#39;re ready to try again! That is another one of those
+copy-and-paste functions. Only the <code>co_names</code> is any different.  That gets
+the test cases to pass. Let&#39;s try something fun in the Python interpreter:</p>
+<div class="highlight"><pre><code class="text">&gt;&gt;&gt; from ch04 import expr1
+&gt;&gt;&gt; from io import StringIO as sio
+&gt;&gt;&gt; expr1.init(inp=sio(&quot;A+1&quot;))
+&gt;&gt;&gt; co = expr1.compile()
+&gt;&gt;&gt; A = 1234
+&gt;&gt;&gt; fn = co.to_function(globals())
+&gt;&gt;&gt; fn()
+1235
+</code></pre>
+</div>
+
+<p><em>How about that?</em></p>
+
+<p>I don&#39;t think anyone can argue with that result. Our &quot;toy compiler&quot; parses
+an arithmetic expression, generates a set of Python bytecode, and with one
+more method call, we can integrate our compiled code with Python code. At
+this point, you have a simple, but full-fledged, compiler. There are no
+tricks. We are processing the input, parsing the expression, writing the
+bytecodes- it&#39;s a compiler!</p>
+
+<h1 id="toc_3721">Assignments</h1>
+
+<p>Flush with that success, let&#39;s ask the obvious question: what do we have to
+do in order to store values into variables? How do we code an assignment?</p>
+
+<p>First, though, we need to think about one of the differences between C and
+Python. In C, the assignment operators (all those operators like += and -=
+are included in the list) are <em>operators.</em> In C, you can use assignment
+anywhere you could use another operator, like addition. That means that this
+code is valid C:
+<code>C
+while (*dst++=*src++)
+    /* empty --&gt; */ ;
+</code>
+Python, on the other hand, defines an <em>assignment statement</em> that has a
+chained syntax very much like that of C. But assignment is not an operator,
+and cannot appear in the middle of an expression.</p>
+
+<p>This is a Python design decision. And like a lot of Python&#39;s design
+decisions, it is somewhat controversial. But many other languages before C
+also treated assignment as a statement rather than an operator. So this is
+one of those decisions you will have to make: is assignment a statement type
+or a binary operator?</p>
+
+<p>For this exercise, I&#39;m going to treat it as a statement. We&#39;ve been
+processing expressions from the beginning - I think it&#39;s time to branch out
+a little bit!</p>
+
+<p>One problem with assignment statements, though, is that they lead to other
+kinds of statements. Up until now, our expressions have been pure
+expressions, whose value could simply be evaluated and returned to the
+caller. When we add assignment statements to the mix, it leads to wanting to
+evaluate other expressions in the context of the assignments:
+<code>
+x=1
+y=2
+z=x+y
+</code>
+And that leads to grouping statements together. The next thing you know,
+we&#39;ll be adding curly braces!</p>
+
+<p>Let us add a new rule to our language. So far, all our expressions have fit
+on one line, and I don&#39;t see a reason to change that. Even Python has a way
+to separate one statement from another on the same line: the semicolon. So
+we will accept one or more <em>statements,</em> with the statements separated by
+semicolon characters. For example: <code>a=1;b=2;c=a+b*3</code></p>
+
+<h2 id="toc_3722">Change the Filename!</h2>
+
+<p>This is a significant change. And so before we do anything else, we should
+make a copy of our code. I&#39;ll copy my <code>expr1.py</code> code over to <code>expr2.py</code> and
+carry on from there. Obviously, the test code has to be copied as well.
+Sorry for the interruption. Carry on!</p>
+
+<p>How does this affect our grammar? Well, one thing we <em>don&#39;t</em> have to worry
+about is inserting yet another level of precedence! Instead, we&#39;ll be
+recognizing two kinds of statement. So let&#39;s write a function for that.
+<code>
+def statement():
+    if Peek.isalpha():
+        # ???
+    else:
+        expression()
+</code>
+And...here&#39;s a problem. When we are looking at a variable at the beginning
+of our &quot;statement,&quot; it&#39;s ambiguous. It could be the start of an assignment,
+like &quot;x=1&quot;. But it might also be the start of a simple expression that
+happens to use a variable, like &quot;x+3&quot;. How can we differentiate these two
+cases?</p>
+
+<ul>
+<li><p>One thing we could do is &quot;hoist&quot; the starting tokens up into the
+<code>statement</code> function. By matching the leading variable-reference and
+then testing for the assignment operator, we could then pass it in to an
+expression or assignment matching function. Yes, this is just as
+horrible an idea as it sounds.</p>
+
+<p>Our problem is that we don&#39;t retain the input. We generate our bytecode
+just as we read it. That is great for speed and simplicity, but not so
+great when we want just a little bit more context to make a decision.</p></li>
+<li><p>We can steal an idea from the Python grammar itself, here, and realize
+that our <code>expression()</code> function will stop when it reaches a character
+that it cannot incorporate into an expression. So if we have an input
+like &quot;a=1&quot; and we call <code>expression</code>, it will generate the bytecode for
+reading the &#39;a&#39; variable, and then stop when it sees &#39;=&#39;, which is not
+an expected part of an expression.</p>
+
+<p>We could put in a global boolean that indicated if the &#39;expression&#39; we
+had seen up to now was a valid <em>lvalue</em> (a value that can appear on the
+left side of an assignment). Then when we saw an assignment operator, we
+would know the left side was legitimate, and could process the
+assignment.</p>
+
+<p>Of course, there&#39;s this code to read the value already generated. Maybe
+we could emit some more code to pop the value off the stack?</p></li>
+<li><p>We could requires a special keyword, or a special name. In Pascal, the
+return value from a function is generated by assigning to a
+&quot;variable&quot; that is the name of the function. Something like this:</p>
+<div class="highlight"><pre><code class="text">function name_of_the_function;
+begin
+    name_of_the_function := 1;
+end
+</code></pre>
+</div>
+
+<p>Or alternatively, we could put a keyword at the beginning of the line.
+That key word would &#39;predict&#39; for us that this was going to be an
+assignment statement, like &#39;let&#39;:</p>
+<div class="highlight"><pre><code class="text">let x = 1
+let y = 2
+</code></pre>
+</div>
+
+<p>Alternatively, we could use the keyword for the resulting value, and
+assume that any expression that doesn&#39;t have the keyword is an
+assignment:</p>
+<div class="highlight"><pre><code class="text">x = 1
+y = 2
+return x + y
+</code></pre>
+</div></li>
+<li><p>We could <em>edit</em> the bytecode we have generated: in conjunction with the
+<code>is_lvalue</code> idea above, we could simply go back and remove the
+bytecode to replace the LOAD with a STORE.</p></li>
+<li><p>We could start building a &quot;tree&quot; while parsing our expressions, and not
+actually generate any bytecode until we had a good idea what was
+happening. This is a good idea, but I&#39;m going to put it off for a bunch
+of chapters.</p></li>
+</ul>
+
+<p>You&#39;ve probably figured out that I&#39;m inclined to go with something that
+looks like C where possible. So I&#39;m going to ignore the possibilities of the
+&#39;let&#39; keyword. Instead, let&#39;s adopt the <code>return</code> keyword, or <code>z</code> for short.
+(I want to keep &#39;r&#39; available for the chapter on loops.)</p>
+
+<p>This means that any statement except the last one should be an assignment.
+That will make the coding simpler!
+```
+def compile():
+    while Peek is not None and Peek != &#39;z&#39;:
+        stmt_assignment()
+        match(&#39;;&#39;)</p>
+<div class="highlight"><pre><code class="text">if Peek is None:
+    expected(&#39;Return Expression&#39;)
+stmt_return()
+return _Code
+</code></pre>
+</div>
+
+<p>def emit_store_var(varname):
+    opcode = &#39;STORE_GLOBAL&#39; if is_global(varname) else &#39;STORE_FAST&#39;
+    emit(opcode, varname)</p>
+
+<p>def stmt_assignment():
+    lvalue = get_identifier()
+    match(&#39;=&#39;)
+    expression()
+    emit_store_var(lvalue)</p>
+
+<p>def stmt_return():
+    match(&#39;z&#39;)
+    expression()
+    emit(&#39;RETURN_VALUE&#39;)
+```
+Well, <em>that</em> wasn&#39;t very hard at all! And it&#39;s because we spent a little
+time to plan. Trying to implement assignment as an operator would have been
+a whole different story with the way our code is currently shaped.</p>
+
+<h1 id="toc_3723">Functions</h1>
 
 <p>Functions in Python seem like simple things. But there is a pretty wide
 amount of variety in how things are handled, depend on context. Let&#39;s look
@@ -788,9 +1145,9 @@ to be treated as a pointer to a function. But I don&#39;t think we&#39;re ready 
 that just yet. So instead, let&#39;s admit that a function has a name, and let&#39;s
 insert function call recognition in with name recognition.</p>
 
-<h1 id="toc_20">Multi-Character Tokens</h1>
+<h1 id="toc_3724">Multi-Character Tokens</h1>
 
-<h1 id="toc_21">White Space</h1>
+<h1 id="toc_3725">White Space</h1>
 
   </div>
 </div>

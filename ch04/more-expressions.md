@@ -267,8 +267,8 @@ def test_something(self):
 ```
 
 Let's go ahead and write the first test case and store it into
-``tests/expr1_tests.py``. We'll extract the setup and test code into an
-``assertExpr()``: subroutine, to make writing test cases easy:
+`tests/expr1_tests.py`. We'll extract the setup and test code into an
+`assertExpr()`: subroutine, to make writing test cases easy:
 
 ```
 from io import StringIO
@@ -665,22 +665,6 @@ Great! Now we have a bytecode-generating version of our parser from chapter
 2. This is a great stopping point. If you've got things to do, now would be
 a good time to take a break.
 
-Does it Run?
-============
-
-So far, we've generated a lot of bytecode in binary form, and we've been
-testing it by disassembling the bytecodes and comparing them against a list
-of strings. That's good for testing, but it isn't as satisfying as having
-code actually run. So let's see if our code will actually run - by which
-I mean 'generate bytecodes that do what we expect inside a live Python VM.'
-
-Presently, we are modeling a 'code object' from Python with our =CodeObject=
-class. But a =CodeObject,= or even a 'code object', is not a function. A
-function is something we can call from Python. A code object is just a bunch
-of bits.
-
-So let's look at what it takes to produce a c
-
 Variables
 =========
 
@@ -689,8 +673,378 @@ expressions. The obvious next thing to add would be variables. With
 variables, we can build a desktop calculator to match the best of them! And
 also, we'll be on our way to loops and subroutines.
 
+Let's start off by seeing how Python does it. We'll feed the Python compiler
+three different kinds of symbols: paramters, local variables, and global
+variables.
+
+```
+>>> def f(x):
+...     y = x+1
+...     global g
+...     g = y+x
+...     return g
+...
+>>> dis.dis(f)
+  2           0 LOAD_FAST                0 (x)
+              3 LOAD_CONST               1 (1)
+              6 BINARY_ADD
+              7 STORE_FAST               1 (y)
+
+  4          10 LOAD_FAST                1 (y)
+             13 LOAD_FAST                0 (x)
+             16 BINARY_ADD
+             17 STORE_GLOBAL             0 (g)
+
+  5          20 LOAD_GLOBAL              0 (g)
+             23 RETURN_VALUE
+```
+
+What we can see is that Python treats accesses to parameters and accesses to
+local variables the same - it uses the same opcode, `LOAD_FAST,` for both
+parameter 'x' and local variable 'y'. (That's _definitely_ not true in other
+environments.) And global variables are accessed using the `LOAD_GLOBAL` and
+`STORE_GLOBAL` instructions, instead of the ...\_FAST ones.
+
+That seems pretty straightforward. Now we just have to make sure we keep our
+variables numbered correctly. The append logic in bytecode should handle
+this, except that we haven't written it yet. So I guess that's what we
+should do first. Here are the specifications for the LOAD_FAST and
+LOAD_GLOBAL opcodes, from the =dis= module page:
+
+    LOAD_FAST(var_num)
+        Pushes a reference to the local co_varnames[var_num] onto the stack.
+
+    LOAD_GLOBAL(namei)
+        Loads the global named co_names[namei] onto the stack.
+
+Having identified which list of names we should search, let's get coding!
+
+```
+def _append_opcode_localvar(self, opnum, arg):
+    value_list = self.co_varnames
+    try:
+        arg_index = value_list.index(arg)
+    except ValueError:
+        arg_index = len(value_list)
+        value_list.append(arg)
+    self.append_bytecode(opnum, arg_index)
+
+def _append_opcode_name(self, opnum, arg):
+    value_list = self.co_names
+    try:
+        arg_index = value_list.index(arg)
+    except ValueError:
+        arg_index = len(value_list)
+        value_list.append(arg)
+    self.append_bytecode(opnum, arg_index)
+```
+
+That should take care of both the ...\_FAST and the ...\_GLOBAL instructions
+for variable load and store. Now let's refactor the common code into a
+helper method, and fix up the constant handler already in bytecode.py.
+
+```
+def _append_table_helper(self, opnum, arg, table):
+    try:
+        arg_index = table.index(arg)
+    except ValueERror:
+        arg_index = len(table)
+        table.append(arg)
+    self.append_bytecode(opnum, arg_index)
+
+def _append_opcode_localvar(self, opnum, arg):
+    self._append_table_helper(opnum, arg, self.co_varnames)
+
+def _append_opcode_name(self, opnum, arg):
+    self._append_table_helper(opnum, arg, self.co_names)
+
+def _append_opcode_const(self, opnum, arg):
+    self._append_opcode_const(self, opnum, arg, self.co_consts)
+```
+
+With that fixed, let's talk about how we should do variables in expressions.
+I think we'll stick to global variables, at first, so we can use them
+without having to deal with assignment statements. When we parse variables
+in an expression, they are going to be read-only. We'll deal with assignment
+later.
+
+No assignments means that any reference we make to a variable is a read.
+That lets us write a function like expr_read_var. The function will take a
+name, and emit a reference that loads the name into the stack.
+
+```
+def expr_read_var():
+    varname = get_identifier()
+    emit('LOAD_GLOBAL', varname)
+```
+
+We can integrate this into the `expr_atom` function:
+```
+def expr_atom(self):
+    if Peek == '(':
+        match('(')
+        expression()
+        match(')')
+    elif Peek.isalpha():
+        expr_read_var()
+    else:
+        num = int(get_number())
+        emit('LOAD_CONST', num)
+```
+Don't forget the test cases:
+```
+def test_read_variable(self):
+    asm = """
+        LOAD_FAST 0 (a)
+        RETURN_VALUE
+    """
+    self.assertExpr("a", asm)
+
+def test_read_2_variables(self):
+    asm = """
+        LOAD_FAST (a)
+        LOAD_CONST (1)
+        BINARY_ADD
+        LOAD_FAST (b)
+        LOAD_CONST (2)
+        BINARY_ADD
+        BINARY_MULTIPLY
+        RETURN_VALUE
+    """
+    self.assertExpr("(a+1)*(b+2)", asm)
+```
+That is GREAT! That was pretty easy to code, and the test cases passed as
+soon as I got a typo fixed. I'm feeling so good about how that went, that
+I'm tempted to add some more capability. Let's add global symbols! We'll
+need to be able to differentiate between global and local variables, but
+that should be pretty easy. Here's a simple implementation:
+```
+def is_global(name):
+    return False
+
+def expr_read_var():
+    varname = get_identifier()
+    if is_global(varname):
+        emit('LOAD_GLOBAL', varname)
+    else:
+        emit('LOAD_FAST', varname)
+```
+That's kind of funny. But C already has a protocol for local versus global
+variables: first letter upper-case. Since our variables are only one letter
+long, we can still get away with it.
+```
+def is_global(name):
+    return name[0].isupper()
+```
+Well, it _almost_ works:
+```
+  File "/Users/austin/git/lbac/ch04/bytecode.py", line 242, in
+_decode_opcode_name
+    raise NotImplementedError("not yet")
+NotImplementedError: not yet
+```
+Apparently, when we add something to the _encoder,_ we have to add it to the
+_decoder,_ as well! A quick fix...
+```
+def _decode_opcode_name(self, opnum, it, offset, extended_arg):
+    """Return a tuple of (lineno, offset, (labels), opnum, opname,
+    argindex, argvalue)."""
+    lineno, labels, opname = self._decode_common(opnum, offset)
+    argindex = self._decode_argindex(it, extended_arg)
+    argvalue = self.co_names[argindex]
+    return (lineno, offset, labels, opnum, opname, argindex, argvalue)
+```
+
+... and we're ready to try again! That is another one of those
+copy-and-paste functions. Only the ``co_names`` is any different.  That gets
+the test cases to pass. Let's try something fun in the Python interpreter:
+
+```
+>>> from ch04 import expr1
+>>> from io import StringIO as sio
+>>> expr1.init(inp=sio("A+1"))
+>>> co = expr1.compile()
+>>> A = 1234
+>>> fn = co.to_function(globals())
+>>> fn()
+1235
+```
+
+_How about that?_
+
+I don't think anyone can argue with that result. Our "toy compiler" parses
+an arithmetic expression, generates a set of Python bytecode, and with one
+more method call, we can integrate our compiled code with Python code. At
+this point, you have a simple, but full-fledged, compiler. There are no
+tricks. We are processing the input, parsing the expression, writing the
+bytecodes- it's a compiler!
+
 Assignments
 ===========
+
+Flush with that success, let's ask the obvious question: what do we have to
+do in order to store values into variables? How do we code an assignment?
+
+First, though, we need to think about one of the differences between C and
+Python. In C, the assignment operators (all those operators like += and -=
+are included in the list) are _operators._ In C, you can use assignment
+anywhere you could use another operator, like addition. That means that this
+code is valid C:
+```C
+while (*dst++=*src++)
+    /* empty --> */ ;
+```
+Python, on the other hand, defines an _assignment statement_ that has a
+chained syntax very much like that of C. But assignment is not an operator,
+and cannot appear in the middle of an expression.
+
+This is a Python design decision. And like a lot of Python's design
+decisions, it is somewhat controversial. But many other languages before C
+also treated assignment as a statement rather than an operator. So this is
+one of those decisions you will have to make: is assignment a statement type
+or a binary operator?
+
+For this exercise, I'm going to treat it as a statement. We've been
+processing expressions from the beginning - I think it's time to branch out
+a little bit!
+
+One problem with assignment statements, though, is that they lead to other
+kinds of statements. Up until now, our expressions have been pure
+expressions, whose value could simply be evaluated and returned to the
+caller. When we add assignment statements to the mix, it leads to wanting to
+evaluate other expressions in the context of the assignments:
+```
+x=1
+y=2
+z=x+y
+```
+And that leads to grouping statements together. The next thing you know,
+we'll be adding curly braces!
+
+Let us add a new rule to our language. So far, all our expressions have fit
+on one line, and I don't see a reason to change that. Even Python has a way
+to separate one statement from another on the same line: the semicolon. So
+we will accept one or more _statements,_ with the statements separated by
+semicolon characters. For example: ``a=1;b=2;c=a+b*3``
+
+Change the Filename!
+--------------------
+This is a significant change. And so before we do anything else, we should
+make a copy of our code. I'll copy my `expr1.py` code over to `expr2.py` and
+carry on from there. Obviously, the test code has to be copied as well.
+Sorry for the interruption. Carry on!
+
+How does this affect our grammar? Well, one thing we _don't_ have to worry
+about is inserting yet another level of precedence! Instead, we'll be
+recognizing two kinds of statement. So let's write a function for that.
+```
+def statement():
+    if Peek.isalpha():
+        # ???
+    else:
+        expression()
+```
+And...here's a problem. When we are looking at a variable at the beginning
+of our "statement," it's ambiguous. It could be the start of an assignment,
+like "x=1". But it might also be the start of a simple expression that
+happens to use a variable, like "x+3". How can we differentiate these two
+cases?
+
+  * One thing we could do is "hoist" the starting tokens up into the
+    ``statement`` function. By matching the leading variable-reference and
+    then testing for the assignment operator, we could then pass it in to an
+    expression or assignment matching function. Yes, this is just as
+    horrible an idea as it sounds.
+
+    Our problem is that we don't retain the input. We generate our bytecode
+    just as we read it. That is great for speed and simplicity, but not so
+    great when we want just a little bit more context to make a decision.
+
+  * We can steal an idea from the Python grammar itself, here, and realize
+    that our `expression()` function will stop when it reaches a character
+    that it cannot incorporate into an expression. So if we have an input
+    like "a=1" and we call `expression`, it will generate the bytecode for
+    reading the 'a' variable, and then stop when it sees '=', which is not
+    an expected part of an expression.
+
+    We could put in a global boolean that indicated if the 'expression' we
+    had seen up to now was a valid _lvalue_ (a value that can appear on the
+    left side of an assignment). Then when we saw an assignment operator, we
+    would know the left side was legitimate, and could process the
+    assignment.
+
+    Of course, there's this code to read the value already generated. Maybe
+    we could emit some more code to pop the value off the stack?
+
+  * We could requires a special keyword, or a special name. In Pascal, the
+    return value from a function is generated by assigning to a
+    "variable" that is the name of the function. Something like this:
+
+        function name_of_the_function;
+        begin
+            name_of_the_function := 1;
+        end
+
+    Or alternatively, we could put a keyword at the beginning of the line.
+    That key word would 'predict' for us that this was going to be an
+    assignment statement, like 'let':
+
+        let x = 1
+        let y = 2
+
+    Alternatively, we could use the keyword for the resulting value, and
+    assume that any expression that doesn't have the keyword is an
+    assignment:
+
+        x = 1
+        y = 2
+        return x + y
+
+  * We could _edit_ the bytecode we have generated: in conjunction with the
+    `is_lvalue` idea above, we could simply go back and remove the
+    bytecode to replace the LOAD with a STORE.
+
+  * We could start building a "tree" while parsing our expressions, and not
+    actually generate any bytecode until we had a good idea what was
+    happening. This is a good idea, but I'm going to put it off for a bunch
+    of chapters.
+
+You've probably figured out that I'm inclined to go with something that
+looks like C where possible. So I'm going to ignore the possibilities of the
+'let' keyword. Instead, let's adopt the `return` keyword, or `z` for short.
+(I want to keep 'r' available for the chapter on loops.)
+
+This means that any statement except the last one should be an assignment.
+That will make the coding simpler!
+```
+def compile():
+    while Peek is not None and Peek != 'z':
+        stmt_assignment()
+        match(';')
+
+    if Peek is None:
+        expected('Return Expression')
+    stmt_return()
+    return _Code
+
+def emit_store_var(varname):
+    opcode = 'STORE_GLOBAL' if is_global(varname) else 'STORE_FAST'
+    emit(opcode, varname)
+
+def stmt_assignment():
+    lvalue = get_identifier()
+    match('=')
+    expression()
+    emit_store_var(lvalue)
+
+def stmt_return():
+    match('z')
+    expression()
+    emit('RETURN_VALUE')
+```
+Well, _that_ wasn't very hard at all! And it's because we spent a little
+time to plan. Trying to implement assignment as an operator would have been
+a whole different story with the way our code is currently shaped.
 
 Functions
 =========

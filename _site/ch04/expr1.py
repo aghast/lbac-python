@@ -69,6 +69,16 @@ def get_char():
         Peek = None
     return result
 
+def get_identifier():
+    """
+    Expect that the next input will be an identifier. (Currently: 1 letter.)
+    Read and return the identifier. Abort if not found.
+    """
+    id = get_char()
+    if not id.isalpha():
+        expected('Identifier')
+    return id
+
 def get_number():
     """
     Expect that the next input will be a number. Read and return
@@ -115,6 +125,7 @@ def init(inp=None, out=None, err=None):
     # 'prime the pump' to read first character, etc.
     get_char()
     _Code = bytecode.CodeObject()
+    _Is_lvalue = False
 
 def compile():
     expression()
@@ -141,6 +152,8 @@ def expr_atom():
         match('(')
         expression()
         match(')')
+    elif Peek.isalpha():
+        expr_read_var()
     else:
         num = int(get_number())
         emit('LOAD_CONST', num)
@@ -164,6 +177,13 @@ def expr_multiply():
     match('*')
     expr_unary()
     emit('BINARY_MULTIPLY')
+
+def expr_read_var():
+    varname = get_identifier()
+    if is_global(varname):
+        emit('LOAD_GLOBAL', varname)
+    else:
+        emit('LOAD_FAST', varname)
 
 def expr_subtract():
     match('-')
@@ -192,6 +212,9 @@ def expr_unary_plus():
 
 def expression():
     expr_addop()
+
+def is_global(name):
+    return name[0].isupper()
 
 def main():
     print("Enter your code on a single line. Enter '.' by itself to quit.")
