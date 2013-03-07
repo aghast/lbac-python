@@ -102,6 +102,35 @@ class TestCompiler(unittest.TestCase):
         """
         self.assertExpr("+8", asm)
 
+    def test_read_variable(self):
+        asm = """
+            LOAD_FAST 0 (a)
+            RETURN_VALUE
+        """
+        self.assertExpr("a", asm)
+
+    def test_read_2_variables(self):
+        asm = """
+            LOAD_FAST (a)
+            LOAD_CONST (1)
+            BINARY_ADD
+            LOAD_FAST (b)
+            LOAD_CONST (2)
+            BINARY_ADD
+            BINARY_MULTIPLY
+            RETURN_VALUE
+        """
+        self.assertExpr("(a+1)*(b+2)", asm)
+
+    def test_read_global(self):
+        asm = """
+            LOAD_CONST (2)
+            LOAD_GLOBAL (A)
+            BINARY_ADD
+            RETURN_VALUE
+        """
+        self.assertExpr("2+A", asm)
+
 
 if __name__ == '__main__':
     unittest.main()

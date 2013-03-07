@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: set et sts=4 sw=4 ts=4 tw=76
 """
-    ch04.expr1
+    ch04.expr2
     ~~~~~~~~~~~
 
     Expression-parsing compiler with bytecode generation for chapter 4
@@ -128,9 +128,18 @@ def init(inp=None, out=None, err=None):
     _Is_lvalue = False
 
 def compile():
-    expression()
-    emit('RETURN_VALUE')
+    while Peek is not None and Peek != 'z':
+        stmt_assignment()
+        match(';')
+
+    if Peek is None:
+        expected('Return Expression')
+    stmt_return()
     return _Code
+
+def emit_store_var(varname):
+    opcode = 'STORE_GLOBAL' if is_global(varname) else 'STORE_FAST'
+    emit(opcode, varname)
 
 def expr_add():
     match('+')
@@ -215,6 +224,17 @@ def expression():
 
 def is_global(name):
     return name[0].isupper()
+
+def stmt_assignment():
+    lvalue = get_identifier()
+    match('=')
+    expression()
+    emit_store_var(lvalue)
+
+def stmt_return():
+    match('z')
+    expression()
+    emit('RETURN_VALUE')
 
 def main():
     print("Enter your code on a single line. Enter '.' by itself to quit.")
