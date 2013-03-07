@@ -1,3 +1,7 @@
+---
+layout: chapter
+title: Bytecode Generation
+---
 
 Bytecode Generation
 ===================
@@ -44,8 +48,8 @@ First, there's a copy of the op-code list in the documentation for the
 dis module. And there's a good set of articles written by Yaniv Aknin
 that details some of the internal workings of the interpreter. [^1]
 
-Next, there are the dis module functions `dis` and `show_code`, and the
-builtin `compile` function. Taken together, these are a great resource
+Next, there are the dis module functions =dis= and =show_code=, and the
+builtin =compile= function. Taken together, these are a great resource
 to show how a "working" compiler generates bytecode.
 
 Getting Started
@@ -70,9 +74,8 @@ At the prompt, first define a simple function:
 >>>
 ```
 
-<!---
 Next, import the two functions dis and show_code from the dis module
-as da and sc. Then run both functions on \`return42\`:
+as da and sc. Then run both functions on \=return42\=:
 
 ```
 >>> from dis import dis as da, show_code as sc
@@ -412,7 +415,7 @@ class CodeObject:
 
 def __init__(self, ref=None):
     """
-    Create a new CodeObject. If `from` is set, take the values from
+    Create a new CodeObject. If =from= is set, take the values from
     the function or code object given. Otherwise, the object should
     be empty but ready to modify.
     """
@@ -1080,17 +1083,17 @@ function from our Python and have it work. So let's do that.
 
 ### From Code to Function
 
-A little bit of Google will take you to the `exec()` documentation in
+A little bit of Google will take you to the =exec()= documentation in
 Python, which explicitly states, "This function can also be used to
 execute arbitrary code objects (such as those created by compile())."
 Well, that's pretty clear. But I don't want to return a binary thing
-that has to be passed to `exec().` At least, not yet. I want a
+that has to be passed to =exec().= At least, not yet. I want a
 *function!*
 
-A little more Google leads us to `FunctionType,` defined in the `types`
+A little more Google leads us to =FunctionType,= defined in the =types=
 module. In the Django sources, there are some examples of creating a
-function using the `FunctionType(...)` constructor. Running
-`pydoc types.FunctionType` shows a definition like this:
+function using the =FunctionType(...)= constructor. Running
+=pydoc types.FunctionType= shows a definition like this:
 
 ```
 types.FunctionType = class function(object)
@@ -1099,7 +1102,7 @@ types.FunctionType = class function(object)
 |  Create a function object from a code object and a dictionary.
 |  The optional name string overrides the name from the code object.
 |  The optional argdefs tuple specifies the default argument values.
-|  The optional closure tuple supplies the bindings for free variables. ``\`
+|  The optional closure tuple supplies the bindings for free variables. `=\=
 ```
 
 If I read this right, the =function()= constructor is renamed to
@@ -1201,7 +1204,7 @@ And here's the code I used:
 ```
 def compile(self):
     """
-    Compile the current state of the object into a Python `CodeType`
+    Compile the current state of the object into a Python =CodeType=
     object. Because of data format conversions, this method can be
     called more than once as the object changes.
     Return a new CodeType object.
