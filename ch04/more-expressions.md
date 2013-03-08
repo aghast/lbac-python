@@ -1046,6 +1046,27 @@ Well, _that_ wasn't very hard at all! And it's because we spent a little
 time to plan. Trying to implement assignment as an operator would have been
 a whole different story with the way our code is currently shaped.
 
+Here are some tests:
+```
+def test_assignment(self):
+    asm = """
+        LOAD_CONST (7)
+        STORE_FAST (x)
+        LOAD_CONST (0)
+        RETURN_VALUE
+    """
+    self.assertExpr("x=7;z0", asm)
+
+def test_return_var(self):
+    asm = """
+        LOAD_CONST (1)
+        STORE_FAST (x)
+        LOAD_FAST (x)
+        RETURN_VALUE
+    """
+    self.assertExpr("x=1;zx", asm)
+```
+
 Functions
 =========
 
