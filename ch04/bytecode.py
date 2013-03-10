@@ -9,11 +9,18 @@
     :copyright: 2013 by Austin Hastings, see AUTHORS for more details.
     :license: GPL v3+, see LICENSE for more details.
 """
+import inspect
 import opcode
 import re
 import types
 
 class CodeObject:
+
+    def __call__(self, *args):
+        frame = inspect.stack()[1][0]
+        globs = frame.f_globals
+        fn = self.to_function(globs=globs)
+        return fn(*args)
 
     def __init__(self, ref=None):
         """
@@ -94,8 +101,8 @@ class CodeObject:
     def _append_opcode_name(self, opnum, arg):
         self._append_table_helper(opnum, arg, self.co_names)
 
-    def _append_opcode_numargs(self, opnum, arg):
-        raise NotImplementedError("not yet")
+    def _append_opcode_hasnargs(self, opnum, arg):
+        self.append_bytecode(opnum, arg)
 
     def _append_table_helper(self, opnum, arg, table):
         try:
@@ -115,7 +122,7 @@ class CodeObject:
             _append_opcode_jumprel: opcode.hasjrel,
             _append_opcode_localvar: opcode.haslocal,
             _append_opcode_name   : opcode.hasname,
-            _append_opcode_numargs: opcode.hasnargs,
+            _append_opcode_hasnargs: opcode.hasnargs,
     }
 
     for strategy, oplist in _append_strategy.items():
@@ -158,7 +165,7 @@ class CodeObject:
         cellvars = ()
         ct = types.CodeType(
             self.co_argcount, kwonlyargs, self.co_nlocals, self.co_stacksize,
-            self.co_flags, bytes(self.co_code), tuple(self.co_consts), 
+            self.co_flags, bytes(self.co_code), tuple(self.co_consts),
             tuple(self.co_names), tuple(self.co_varnames), self.co_filename,
             self.co_name, self.co_firstlineno, bytes(self.co_lnotab),
             freevars, cellvars)
@@ -236,7 +243,7 @@ class CodeObject:
         argvalue = self.co_names[argindex]
         return (lineno, offset, labels, opnum, opname, argindex, argvalue)
 
-    def _decode_opcode_numargs(self, opnum, it, offset, extended_arg):
+    def _decode_opcode_hasnargs(self, opnum, it, offset, extended_arg):
         """Return a tuple of (lineno, offset, (labels), opnum, opname,
         argindex, argvalue)."""
         raise NotImplementedError("not yet")
@@ -251,7 +258,7 @@ class CodeObject:
         _decode_opcode_jumprel : opcode.hasjrel,
         _decode_opcode_localvar: opcode.haslocal,
         _decode_opcode_name    : opcode.hasname,
-        _decode_opcode_numargs : opcode.hasnargs,
+        _decode_opcode_hasnargs: opcode.hasnargs,
     }
 
     for strategy, oplist in _decode_strategy.items():

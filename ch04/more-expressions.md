@@ -1,8 +1,3 @@
----
-modeline: " vim: set et sts=4 sw=4 ts=4 tw=76: "
-layout: chapter
-title: More Expressions
----
 
 More Expressions
 ================
@@ -258,7 +253,7 @@ of Python's built-in compile function, too.)
 
 Thus, a test case will look something like this:
 
-```
+```python
 def test_something(self):
     ... setup ...
     co = compiler.compile(...)
@@ -270,7 +265,7 @@ Let's go ahead and write the first test case and store it into
 `tests/expr1_tests.py`. We'll extract the setup and test code into an
 `assertExpr()`: subroutine, to make writing test cases easy:
 
-```
+```python
 from io import StringIO
 import unittest
 
@@ -295,7 +290,7 @@ class TestCompiler(unittest.TestCase):
 Run the tests, and guess what? Nothing works. Well, let's get to solving
 the problems. First, let's implement an emit routine that uses a code object. This goes in cradle.py.
 
-```
+```python
     def emit(op, arg=None):
         _Code.append(op, arg)
 ```
@@ -304,7 +299,7 @@ Well, that was easy. But we'll have to add the module variable \_Code,
 and some code in the init function to support it. Here's my version. Notice
 that I've removed the _Output variable in favor of _Code:
 
-```
+```python
 ##### Output functions
 
 _Code = None
@@ -329,7 +324,7 @@ only recognizes a single number. First, copy the cradle over to a new file.
 Mine is called expr1.py. You'll remember that this is how we got
 started, so it should be easy:
 
-```
+```python
 def compile():
     expression()
     return _Code
@@ -343,7 +338,7 @@ def expression():
 Well, that seemed to work. But of course, it's not very challenging.  Let's
 go to a mixed model that can support additive operators or a single value:
 
-```
+```python
 def expression():
     expr_addop()
 
@@ -371,7 +366,7 @@ it now!" model that we were using in chapter 2, we passed around the
 intermediate results as parameters to the various functions. If you'll
 recall, the ``expr\_addop`` code from chapter 2 looked like this:
 
-```
+```python
 def expr_addop():
     result = expr_mulop()
     while Peek is not None and Peek in "+-":
@@ -456,7 +451,7 @@ operand to be on the stack, we just assume that it's there. (And write
 lots of test cases to make *damn sure* that we're right!) Let's give it
 a try:
 
-```
+```python
 def expr_add():
     # Assume first addend is already on stack.
     match('+')
@@ -474,7 +469,7 @@ test cases for all four basic operations, plus some test cases for
 operator precedence. (Feel free to copy them from the tests we wrote in
 chapter 2!) Here are mine:
 
-```
+```python
 def test_add(self):
     asm = """
         LOAD_CONST 1 (1)
@@ -532,7 +527,7 @@ It may seem strange, but we're counting on all the intervening processing to
 just leave our value alone on the stack until we get back to it. And it
 works!:
 
-```
+```python
 def test_multiple_binops(self):
     asm = """
         LOAD_CONST 1 (1)
@@ -589,7 +584,7 @@ adding the negative. They feel that "a - b" is easier to read, and more
 sensible, than "a + -b" or "-b + a".
 
 In this case, why not move the unary from the highest precedence to the
-lowestr?. Instead of allowing a negative sign in front of every term, why
+lowest? Instead of allowing a negative sign in front of every term, why
 not allow at most one negative sign, right at the front of an expression.
 Everything else can be handled by changing add to subtract, or
 subtract to add, or by wrapping parens around a sub-expression.
@@ -599,7 +594,7 @@ if you're more mathematically inclined, maybe you want to speed things
 up by eliminating all the unary minuses except one. That would change the
 ``expression`` code to something like:
 
-```
+```python
 def expression():
     if Peek == '-':
         negated = true
@@ -617,7 +612,7 @@ I'm not going to do that. I'm a stodgy old C programmer at heart, so I'm
 going to follow the same path we followed back in chapter 2, and insert
 unary operators just below ``expr_atom`` in the precedence hierarchy:
 
-```
+```python
 def expr_unary():
     if Peek is None:
         expected('UnaryOp or Atom')
@@ -645,7 +640,7 @@ All the references to ``expr_atom()`` in the multiple, divide, etc.,
 handlers will have to change to refer to ``expr_unary().`` The test cases
 are simple:
 
-```
+```python
 def test_unary_minus(self):
     asm = """
         LOAD_CONST 1 (3)
@@ -666,7 +661,7 @@ Great! Now we have a bytecode-generating version of our parser from chapter
 a good time to take a break.
 
 Variables
-=========
+---------
 
 We have an expression compiler that right now only supports constant
 expressions. The obvious next thing to add would be variables. With
@@ -677,7 +672,7 @@ Let's start off by seeing how Python does it. We'll feed the Python compiler
 three different kinds of symbols: paramters, local variables, and global
 variables.
 
-```
+```python
 >>> def f(x):
 ...     y = x+1
 ...     global g
@@ -703,23 +698,23 @@ What we can see is that Python treats accesses to parameters and accesses to
 local variables the same - it uses the same opcode, `LOAD_FAST,` for both
 parameter 'x' and local variable 'y'. (That's _definitely_ not true in other
 environments.) And global variables are accessed using the `LOAD_GLOBAL` and
-`STORE_GLOBAL` instructions, instead of the ...\_FAST ones.
+`STORE_GLOBAL` instructions, instead of the \_FAST ones.
 
 That seems pretty straightforward. Now we just have to make sure we keep our
 variables numbered correctly. The append logic in bytecode should handle
 this, except that we haven't written it yet. So I guess that's what we
 should do first. Here are the specifications for the LOAD_FAST and
-LOAD_GLOBAL opcodes, from the =dis= module page:
+LOAD_GLOBAL opcodes, from the `dis` module page:
 
-    LOAD_FAST(var_num)
-        Pushes a reference to the local co_varnames[var_num] onto the stack.
+  - `LOAD_FAST(var_num)`  
+    *Pushes a reference to the local co_varnames[var_num] onto the stack.*
 
-    LOAD_GLOBAL(namei)
-        Loads the global named co_names[namei] onto the stack.
+  - `LOAD_GLOBAL(namei)`  
+    *Loads the global named co_names[namei] onto the stack.*
 
 Having identified which list of names we should search, let's get coding!
 
-```
+```python
 def _append_opcode_localvar(self, opnum, arg):
     value_list = self.co_varnames
     try:
@@ -739,15 +734,16 @@ def _append_opcode_name(self, opnum, arg):
     self.append_bytecode(opnum, arg_index)
 ```
 
-That should take care of both the ...\_FAST and the ...\_GLOBAL instructions
+That should take care of both the `*_FAST` and the `*_GLOBAL` instructions
 for variable load and store. Now let's refactor the common code into a
-helper method, and fix up the constant handler already in bytecode.py.
+helper method, and fix up the constant handler already in
+<tt>bytecode.py.</tt>
 
-```
+```python
 def _append_table_helper(self, opnum, arg, table):
     try:
         arg_index = table.index(arg)
-    except ValueERror:
+    except ValueError:
         arg_index = len(table)
         table.append(arg)
     self.append_bytecode(opnum, arg_index)
@@ -762,24 +758,25 @@ def _append_opcode_const(self, opnum, arg):
     self._append_opcode_const(self, opnum, arg, self.co_consts)
 ```
 
-With that fixed, let's talk about how we should do variables in expressions.
-I think we'll stick to global variables, at first, so we can use them
-without having to deal with assignment statements. When we parse variables
-in an expression, they are going to be read-only. We'll deal with assignment
-later.
+With that fixed, let's talk about how we should handle variables in
+expressions.  I think we'll stick to global variables, at first, so we can
+use them without having to deal with assignment statements. When we parse
+variables in an expression, they are going to be read-only. We'll deal with
+assignment later.
 
 No assignments means that any reference we make to a variable is a read.
 That lets us write a function like expr_read_var. The function will take a
 name, and emit a reference that loads the name into the stack.
 
-```
+```python
 def expr_read_var():
     varname = get_identifier()
     emit('LOAD_GLOBAL', varname)
 ```
 
-We can integrate this into the `expr_atom` function:
-```
+We can integrate this into the <tt>expr_atom</tt> function:
+
+```python
 def expr_atom(self):
     if Peek == '(':
         match('(')
@@ -792,7 +789,8 @@ def expr_atom(self):
         emit('LOAD_CONST', num)
 ```
 Don't forget the test cases:
-```
+
+```python
 def test_read_variable(self):
     asm = """
         LOAD_FAST 0 (a)
@@ -813,12 +811,13 @@ def test_read_2_variables(self):
     """
     self.assertExpr("(a+1)*(b+2)", asm)
 ```
-That is GREAT! That was pretty easy to code, and the test cases passed as
+That is *great!* That was pretty easy to code, and the test cases passed as
 soon as I got a typo fixed. I'm feeling so good about how that went, that
 I'm tempted to add some more capability. Let's add global symbols! We'll
 need to be able to differentiate between global and local variables, but
 that should be pretty easy. Here's a simple implementation:
-```
+
+```python
 def is_global(name):
     return False
 
@@ -832,20 +831,24 @@ def expr_read_var():
 That's kind of funny. But C already has a protocol for local versus global
 variables: first letter upper-case. Since our variables are only one letter
 long, we can still get away with it.
-```
+
+```python
 def is_global(name):
     return name[0].isupper()
 ```
 Well, it _almost_ works:
+
 ```
   File "/Users/austin/git/lbac/ch04/bytecode.py", line 242, in
 _decode_opcode_name
     raise NotImplementedError("not yet")
 NotImplementedError: not yet
 ```
-Apparently, when we add something to the _encoder,_ we have to add it to the
-_decoder,_ as well! A quick fix...
-```
+Whoops! Decoding opcode names is one of those things we glossed over back in
+chapter 3. Apparently, when we add something to the _encoder,_ we need to
+add it to the _decoder,_ as well! A quick fix...
+
+```python
 def _decode_opcode_name(self, opnum, it, offset, extended_arg):
     """Return a tuple of (lineno, offset, (labels), opnum, opname,
     argindex, argvalue)."""
@@ -854,12 +857,11 @@ def _decode_opcode_name(self, opnum, it, offset, extended_arg):
     argvalue = self.co_names[argindex]
     return (lineno, offset, labels, opnum, opname, argindex, argvalue)
 ```
-
 ... and we're ready to try again! That is another one of those
 copy-and-paste functions. Only the ``co_names`` is any different.  That gets
 the test cases to pass. Let's try something fun in the Python interpreter:
 
-```
+```python
 >>> from ch04 import expr1
 >>> from io import StringIO as sio
 >>> expr1.init(inp=sio("A+1"))
@@ -870,17 +872,22 @@ the test cases to pass. Let's try something fun in the Python interpreter:
 1235
 ```
 
-_How about that?_
+**_How about that?_**
 
 I don't think anyone can argue with that result. Our "toy compiler" parses
 an arithmetic expression, generates a set of Python bytecode, and with one
 more method call, we can integrate our compiled code with Python code. At
 this point, you have a simple, but full-fledged, compiler. There are no
 tricks. We are processing the input, parsing the expression, writing the
-bytecodes- it's a compiler!
+bytecodes- it's a compiler! My <tt>expr1.py</tt> file is all of 230
+lines long, and the <tt>cradle.py</tt> is 133 lines. Which means that we've
+written a compiler in about 100 lines of "significant" python. (I'm not
+counting the bytecode module, because when you write your *next* compiler
+you can take that module with you. Your new language is only going to
+replace those ~100 lines.)
 
 Assignments
-===========
+-----------
 
 Flush with that success, let's ask the obvious question: what do we have to
 do in order to store values into variables? How do we code an assignment?
@@ -890,9 +897,10 @@ Python. In C, the assignment operators (all those operators like += and -=
 are included in the list) are _operators._ In C, you can use assignment
 anywhere you could use another operator, like addition. That means that this
 code is valid C:
-```C
+
+```c
 while (*dst++=*src++)
-    /* empty --> */ ;
+    /*EMPTY*/ ;
 ```
 Python, on the other hand, defines an _assignment statement_ that has a
 chained syntax very much like that of C. But assignment is not an operator,
@@ -912,7 +920,9 @@ One problem with assignment statements, though, is that they lead to other
 kinds of statements. Up until now, our expressions have been pure
 expressions, whose value could simply be evaluated and returned to the
 caller. When we add assignment statements to the mix, it leads to wanting to
-evaluate other expressions in the context of the assignments:
+evaluate other expressions in the context of the assignments. (Also, to much
+whinging and gnashing of teeth from the functional programming wonks.):
+
 ```
 x=1
 y=2
@@ -930,14 +940,15 @@ semicolon characters. For example: ``a=1;b=2;c=a+b*3``
 Change the Filename!
 --------------------
 This is a significant change. And so before we do anything else, we should
-make a copy of our code. I'll copy my `expr1.py` code over to `expr2.py` and
-carry on from there. Obviously, the test code has to be copied as well.
-Sorry for the interruption. Carry on!
+make a copy of our code. I'll copy my <tt>expr1.py</tt> code over to
+<tt>expr2.py</tt> and carry on from there. Obviously, the test code has to be
+copied as well.  Sorry for the interruption. Carry on!
 
 How does this affect our grammar? Well, one thing we _don't_ have to worry
 about is inserting yet another level of precedence! Instead, we'll be
 recognizing two kinds of statement. So let's write a function for that.
-```
+
+```python
 def statement():
     if Peek.isalpha():
         # ???
@@ -951,10 +962,10 @@ happens to use a variable, like "x+3". How can we differentiate these two
 cases?
 
   * One thing we could do is "hoist" the starting tokens up into the
-    ``statement`` function. By matching the leading variable-reference and
+    <tt>statement</tt> function. By matching the leading variable-reference and
     then testing for the assignment operator, we could then pass it in to an
-    expression or assignment matching function. Yes, this is just as
-    horrible an idea as it sounds.
+    expression or assignment matching function. (Yes, this is just as
+    horrible an idea as it sounds.)
 
     Our problem is that we don't retain the input. We generate our bytecode
     just as we read it. That is great for speed and simplicity, but not so
@@ -1016,7 +1027,8 @@ looks like C where possible. So I'm going to ignore the possibilities of the
 
 This means that any statement except the last one should be an assignment.
 That will make the coding simpler!
-```
+
+```python
 def compile():
     while Peek is not None and Peek != 'z':
         stmt_assignment()
@@ -1047,7 +1059,8 @@ time to plan. Trying to implement assignment as an operator would have been
 a whole different story with the way our code is currently shaped.
 
 Here are some tests:
-```
+
+```python
 def test_assignment(self):
     asm = """
         LOAD_CONST (7)
@@ -1067,17 +1080,21 @@ def test_return_var(self):
     self.assertExpr("x=1;zx", asm)
 ```
 
-Functions
-=========
+Once those tests are working, let's move on to ...
 
-Functions in Python seem like simple things. But there is a pretty wide
-amount of variety in how things are handled, depend on context. Let's look
-at some examples:
+Functions
+---------
+
+Functions in Python seem like simple things. But there is a lot of variety
+in how things are handled, depending on context. Let's look at some
+examples:
 
 * There are *builtin* functions that call C code directly, instead of
   bytecode.
 * Global functions are what most people thing of: a ``def func():`` appears
   somewhere in a module, and it is called in other places.
+* Functions can be imported from a different module and renamed, so that the
+  name they are known by is different from one place to another.
 * Method calls, which look like ``obj.meth(args),`` eventually resolve down
   to function calls.
 * Functions can be nested inside classes (see above) or inside other
@@ -1085,7 +1102,6 @@ at some examples:
 * Functions can also be *closures* if they make reference to a free variable
   that isn't global.
 * Functions can be *generators* or *coroutines.*
-* Functions can be imported from a different module.
 
 Whew! That's a lot of different things to be hiding behind a set of
 parentheses! Let's simplify things as much as we can, and stick to plain old
@@ -1119,14 +1135,13 @@ the Python interpreter:
              29 LOAD_CONST               0 (None)
              32 RETURN_VALUE
 ```
-
 Looking at the first three lines of the disassembly, we can see the name
 lookup, the call, and the assignment of hte result into 'x'. That doesn't
 seem too hard for us to model.
 
 Looking further down, we see the call to print with one argument generates a
-``LOAD_CONST`` opcode and a ``POP_TOP`` to handle the fact that the return
-value is being thrown away. Again, not too much to handle.
+<tt>LOAD_CONST</tt> opcode and a <tt>POP_TOP</tt> to handle the fact that
+the return value is being thrown away. Again, not too much to handle.
 
 What we know so far is that the function being called goes onto the stack
 first. Then the arguments go on the stack. We don't know in what order, but
@@ -1152,7 +1167,6 @@ Let's look at the order of arguments:
              16 LOAD_CONST               0 (None)
              19 RETURN_VALUE
 ```
-
 Yep, it's left-to-right. The arguments 1,2,3 go on with the leftmost first,
 the rightmost last on the stack. Let's look at how we could write the code
 to generate this.
@@ -1176,10 +1190,165 @@ call, not calling a negated function.)
 We *could* try to follow the C route, of allowing any arithmetic expression
 to be treated as a pointer to a function. But I don't think we're ready for
 that just yet. So instead, let's admit that a function has a name, and let's
-insert function call recognition in with name recognition.
+insert function call recognition in with name recognition. With our new
+<tt>expr_atom</tt> function, that will be down in <tt>expr_read_var.</tt>
+
+Let's take a look at the documentation for the opcode, from the online
+manual:
+
+  - `CALL_FUNCTION(argc)`  
+    *Calls a function. The low byte of argc indicates the number of
+    positional parameters, the high byte the number of keyword parameters.
+    On the stack, the opcode finds the keyword parameters first. For each
+    keyword argument, the value is on top of the key. Below the keyword
+    parameters, the positional parameters are on the stack, with the
+    right-most parameter on top. Below the parameters, the function object
+    to call is on the stack. Pops all function arguments, and the function
+    itself off the stack, and pushes the return value.
+
+That low-byte/high-byte encoding seems a little funny, but let's give it a
+try:
+
+```
+def expr_read_var():
+    varname = get_identifier()
+    if Peek == '(':
+        match('(')
+        emit('LOAD_GLOBAL', varname)
+        pos_args = kw_args = 0
+        match(')')
+        if pos_args >= 256:
+            abort("Too many positional arguments (%d) in call to '%s'" % (pos_args, varname))
+        if kw_args >= 256:
+            abort("Too many keyword arguments (%d) in call to '%s'" % (kw_args, varname))
+        emit('CALL_FUNCTION', pos_args | (kw_args << 8))
+    elif is_global(varname):
+        emit('LOAD_GLOBAL', varname)
+    else:
+        emit('LOAD_FAST', varname)
+```
+
+Right now, that function doesn't match any arguments. But it *does* match
+the open and closing parens, and it does emit a valid call. It should
+actually work. Let's test it!
+
+First, we'll need to extend the <tt>bytecode</tt> library to support the
+<tt>CALL_FUNCTION</tt> opcode:
+
+```
+
+```
+Next, we'll need to make some changes to the helper methods:
+
+```python
+def assertExpr(self, text, asm):
+    co = self.compileExpr(text)
+    instructions_match(co, asm)
+
+def compileExpr(self, text):
+    compiler.init(inp=StringIO(text))
+    co = compiler.compile()
+    return co
+```
+Next, we'll add a global function, with a single-letter name:
+
+```python
+Flag = 0
+def f():
+    global Flag
+    Flag += 1
+```
+Now let's add a test case:
+
+```python
+def test_fncall_noargs(self):
+    co = self.compileExpr("zf()")
+    global Flag
+    Flag = 0
+    self.assertEqual(0, Flag)
+    co()
+    self.assertEqual(1, Flag)
+```
+Unfortunately, when we run it we are reminded that things could go a little
+smoother:
+
+```
+TypeError: 'CodeObject' object is not callable
+```
+Let's fix this. Add a <tt>__call__</tt> method to the <tt>bytecode</tt>
+library to handle this case, and we'll move on:
+
+```
+def __call__(self, *args):
+    frame = inspect.stack()[1][0]
+    globs = frame.f_globals
+    fn = self.to_function(globs=globs)
+    return fn(*args)
+```
+Now the tests pass, and we can work on parsing out the arguments to the
+function. We'll use comma to separate the arguments:
+
+```
+def g(x):
+    global Flag
+    Flag = x
+
+def h(x,y):
+    global Flag
+    Flag = x+y
+
+def test_fncall_1arg(self):
+    co = self.compileExpr("zg(3)")
+    global Flag
+    Flag = 0
+    self.assertEqual(0, Flag)
+    co()
+    self.assertEqual(123, Flag)
+
+def test_fncall_2args(self):
+    co = self.compileExpr("zg(5,7)")
+    global Flag
+    Flag = 0
+    self.assertEqual(0, Flag)
+    co()
+    self.assertEqual(5+7, Flag)
+```
+And here's a try at it:
+
+```
+def expr_read_var():
+    varname = get_identifier()
+    if Peek == '(':
+        match('(')
+        emit('LOAD_GLOBAL', varname)
+        pos_args = kw_args = 0
+        while Peek is not None and Peek != ')':
+            if pos_args != 0:
+                match(',')
+            expression()
+            pos_args += 1
+        match(')')
+        if pos_args >= 256:
+            abort("Too many positional arguments (%d) in call to '%s'" % (pos_args, varname))
+        if kw_args >= 256:
+            abort("Too many keyword arguments (%d) in call to '%s'" % (kw_args, varname))
+        emit('CALL_FUNCTION', pos_args | (kw_args << 8))
+    elif is_global(varname):
+        emit('LOAD_GLOBAL', varname)
+    else:
+        emit('LOAD_FAST', varname)
+```
+And it works! Awesome!
+
+All we need is string constants, and multi-character names, and I'll be able
+to `print('Hello, world!')`. I can't wait.
 
 Multi-Character Tokens
 ======================
 
 White Space
 ===========
+
+<!---
+vim: set et fileencoding=utf8 sts=4 sw=4 ts=4 tw=76:
+-->

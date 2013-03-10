@@ -1,1066 +1,677 @@
-<!DOCTYPE HTML>
-<html>
-  <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-    <meta name="author" content="Austin Hastings" />
-    <link href="/stylesheets/normalize.css" media="screen" rel="stylesheet" type="text/css" />
-    <link href="/stylesheets/pygments_borland.css" media="screen" rel="stylesheet" type="text/css" />
-    <link href="/stylesheets/styles.css" media="screen" rel="stylesheet" type="text/css" />
-    <script src="/javascripts/main.js" type="text/javascript"></script>
-
-    <title>More Expressions</title>
-  </head>
-  <body>
-    <header>
-      <h1><a href="/">More Expressions</a></h1>
-    </header>
-    <section>
-      <div class="content">
-  <div id="chapter">
-    <h1></h1>
-    <h1 id="toc_3712">More Expressions</h1>
-
-<p>Now, let&#39;s see what our bytecode module can do! In this chapter, we&#39;ll be
-integrating our bytecode module with the expression parser, and then
-extending our parser to add more capabilities.</p>
-
-<h2 id="toc_3713">Generating Bytecode</h2>
-
-<p>To get started, let&#39;s recap the capabilities that our expression parser
-had at the end of chapter 2. We could:</p>
-
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta http-equiv="Content-Style-Type" content="text/css" />
+  <meta name="generator" content="pandoc" />
+  <title></title>
+  <style type="text/css">code{white-space: pre;}</style>
+  <style type="text/css">
+table.sourceCode, tr.sourceCode, td.lineNumbers, td.sourceCode {
+  margin: 0; padding: 0; vertical-align: baseline; border: none; }
+table.sourceCode { width: 100%; line-height: 100%; }
+td.lineNumbers { text-align: right; padding-right: 4px; padding-left: 4px; color: #aaaaaa; border-right: 1px solid #aaaaaa; }
+td.sourceCode { padding-left: 5px; }
+code > span.kw { color: #007020; font-weight: bold; }
+code > span.dt { color: #902000; }
+code > span.dv { color: #40a070; }
+code > span.bn { color: #40a070; }
+code > span.fl { color: #40a070; }
+code > span.ch { color: #4070a0; }
+code > span.st { color: #4070a0; }
+code > span.co { color: #60a0b0; font-style: italic; }
+code > span.ot { color: #007020; }
+code > span.al { color: #ff0000; font-weight: bold; }
+code > span.fu { color: #06287e; }
+code > span.er { color: #ff0000; font-weight: bold; }
+  </style>
+</head>
+<body>
+<div id="TOC">
+<ul>
+<li><a href="#more-expressions">More Expressions</a><ul>
+<li><a href="#generating-bytecode">Generating Bytecode</a></li>
+<li><a href="#order-of-evaluation">Order of Evaluation</a></li>
+<li><a href="#dedicated-opcodes">Dedicated Opcodes</a></li>
+<li><a href="#generating-bytecode-1">Generating Bytecode</a></li>
+<li><a href="#register-management">Register Management</a></li>
+<li><a href="#another-bug-is-found">Another Bug is Found</a></li>
+<li><a href="#unary-precedence">Unary Precedence</a></li>
+<li><a href="#variables">Variables</a></li>
+<li><a href="#assignments">Assignments</a></li>
+<li><a href="#change-the-filename">Change the Filename!</a></li>
+<li><a href="#functions">Functions</a></li>
+</ul></li>
+<li><a href="#multi-character-tokens">Multi-Character Tokens</a></li>
+<li><a href="#white-space">White Space</a></li>
+</ul>
+</div>
+<h1 id="more-expressions"><a href="#more-expressions">More Expressions</a></h1>
+<p>Now, let’s see what our bytecode module can do! In this chapter, we’ll be integrating our bytecode module with the expression parser, and then extending our parser to add more capabilities.</p>
+<h2 id="generating-bytecode"><a href="#generating-bytecode">Generating Bytecode</a></h2>
+<p>To get started, let’s recap the capabilities that our expression parser had at the end of chapter 2. We could:</p>
 <ul>
 <li>recognize numbers;</li>
-<li>handle unary &#39;+&#39; and &#39;-&#39; operators;</li>
+<li>handle unary ‘+’ and ‘-’ operators;</li>
 <li>add, subtract, multiply, and divide two operands;</li>
 <li>correctly handle operator precedence;</li>
 <li>handle nested sub-expressions in parentheses.</li>
 </ul>
+<p>How will we integrate bytecode? First, our use of literal numbers to evaluate expressions will change into adding constants to the constants table (handled already by the bytecode library). The unary ‘+’ operator can be ignored, and the unary ‘-’ will convert into a dedicated ‘UNARY_NEGATIVE’ opcode. The binary operators all have dedicated opcodes in the Python VM, so those will convert into dedicated opcodes. Operator precedence is already handled by the order in which the parser evaluates the operators. And parentheses are handled in the same way - by recursively evaluating the nested sub-expression before the outer expression is evaluated.</p>
+<p>All in all, it looks like we have a few cases down at the lower levels of the parser - the operators, numbers - where we will have to generate bytecode. And the rest of our features are actually handled implicitly by the expression parser, so we won’t have to make any changes to keep them!</p>
+<p>Before we start converting our code to write bytes, let’s look at two issues that may not be clear to you: why does our parser just ‘magically’ support the correct order of evaluation, and why are dedicated opcodes significant?</p>
+<h2 id="order-of-evaluation"><a href="#order-of-evaluation">Order of Evaluation</a></h2>
+<p>Just exactly how does our parser manage to get the order of evaluation correct? Because we told it to!</p>
+<p>If you remember, when we first started parsing expressions, we wrote code to emulate a four-function calculator. That code just evaluated expressions in the order they appeared. 3 + 4 * 5 was evaluated as (3+4=7) and then (7*5=35). That, we decided, was wrong.</p>
+<p>So we changed our code to use “recursive descent.” In this case, the expression evaluation code for the additive operators (plus and minus) knew (because we programmed it to know!) that multiplication and dividion (and other stuff) had a higher precedence than the additive operators. So before the additive expression code processes anything, it calls the multiplicative part of the parser to check for higher-precedence ops. And the multiplicative part, before it does anything, calls the atom part to check for parens, etc.</p>
+<p>In this way, we have coded the parser to implicitly <em>know</em> what the precedence of the operators is, and to automatically implement the correct order of evaluation. If we generate the code to evaluate our expressions in the same order we have been computing the results, then whatever code we generate should also compute correct results, since it will model its order of evaluation on the order we are using!</p>
+<h2 id="dedicated-opcodes"><a href="#dedicated-opcodes">Dedicated Opcodes</a></h2>
+<p>Believe it or not, having dedicated opcodes to support things like multiplication is a relatively recent thing. In the 1990’s, the SPARC processor (from Sun Microsystems) was shipped with no multiply or divide instruction in hardware. Instead, the reference manual included software routines that could be used to perform arbitrary integer multiply and divide operations using <em>multiply step</em> and <em>divide step</em> operations built into the CPU.</p>
+<p>Below is the shortest such routine, for unsigned integer multiplication (multiply two 32-bit numbers into a 64-bit result). Two things you need to know about the SPARC to have any hope of understanding this code are (1) the SPARC executes one additional operation during the “branch delay” while the processor is waiting for a branch target to be fetched, so the next op after a branch or return statement will be executed always; and (2) the SPARC processors had a model of three groups of registers that would be shifted slightly on each subroutine call, so that the %o registers mentioned below are all visible to the caller on return.:</p>
+<pre class="gas"><code>/*
+ * Procedure to perform a 32 by 32 unsigned multiply.
+ * Pass the multiplier in %o0, and the multiplicand in %o1.
+ * The least significant 32 bits of the result will be returned in %o0,
+ * and the most significant in %o1. *
+ * This code has an optimization built-in for short (less than 13 bit)
+ * multiplies. Short multiplies require 25 instruction cycles, and long ones
+ * require 46 or 48 instruction cycles.
+ *
+ * This code indicates that overflow has occurred, by leaving the Z condition
+ * code clear. The following call sequence would be used if you wish to
+ * deal with overflow:
+ *
+ * call         .umul
+ * nop                          ! (or set up last parameter here)
+ * bnz          overflow_code   ! (or tnz to overflow handler)
+ *
+ * Note that this is a leaf routine; i.e. it calls no other routines and does
+ * all of its work in the out registers. Thus, the usual SAVE and RESTORE
+ * instructions are not needed.
+ */
+    global      .umul
+.umul:
+    or          %o0, %o1, %o4   ! logical or of multiplier and multiplicand
+    mov         %o0, %y         ! multiplier to Y register
+    andncc      %o4, 0xfff, %o5 ! mask out lower 12 bits
+    be          mul_shortway    ! can do it the short way
+    andcc       %g0, %g0, %o4   ! zero the partial product and clear N and V conditions
+    !
+    ! long multiply
+    !
+    mulscc      %o4, %o1, %o4   ! first iteration of 33
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4   ! 32nd iteration
+    mulscc      %o4, %g0, %o4   ! last iteration only shifts
+/*
+ * Normally, with the shift and add approach, if both numbers are
+ * nonnegative, you get the correct result. With 32-bit twos-complement
+ * numbers, -x can be represented as ((2 - (x/(2**32))) mod 2) * 2**32.
+ * To avoid a lot of 2**32’s, we can just move the radix point up to be
+ * just to the left of the sign bit. So:
+ *
+ *  x *  y = (xy) mod 2
+ * -x *  y = (2 - x) mod 2 * y = (2y - xy) mod 2
+ *  x * -y = x * (2 - y) mod 2 = (2x - xy) mod 2
+ * -x * -y = (2 - x) * (2 - y) = (4 - 2x - 2y + xy) mod 2
+ *
+ * For signed multiplies, we subtract (2**32) * x from the partial
+ * product to fix this problem for negative multipliers (see .mul in
+ * Section 1.
+ * Because of the way the shift into the partial product is calculated
+ * (N xor V), this term is automatically removed for the multiplicand,
+ * so we don&#39;t have to adjust.
+ *
+ * But for unsigned multiplies, the high order bit wasn&#39;t a sign bit,
+ * and the correction is wrong. So for unsigned multiplies where the
+ * high order bit is one, we end up with xy - (2**32) * y. To fix it,
+ * we add y * (2**32).
+ */
+    tst         %o1
+    bge         lf
+    nop
+    add         %o4, %o0, %o4
+1:
+    rd          %y, %o0         ! return least sig. bits of prod
+    retl                        ! leaf-routine return
+    addcc       %o4, %g0, %o1   ! delay slot; return high bits and set
+                                ! zero bit appropriately
+    !
+    ! short multiply
+    !
+mul_shortway:
+    mulscc      %o4, %o1, %o4   ! first iteration of 13
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4
+    mulscc      %o4, %o1, %o4   ! 12th iteration
+    mulscc      %o4, %g0, %o4   ! last iteration only shifts
 
-<p>How will we integrate bytecode? First, our use of literal numbers to
-evaluate expressions will change into adding constants to the constants
-table (handled already by the bytecode library). The unary &#39;+&#39; operator can
-be ignored, and the unary &#39;-&#39; will convert into a dedicated &#39;UNARY_NEGATIVE&#39;
-opcode. The binary operators all have dedicated opcodes in the Python VM, so
-those will convert into dedicated opcodes.  Operator precedence is already
-handled by the order in which the parser evaluates the operators. And
-parentheses are handled in the same way - by recursively evaluating the
-nested sub-expression before the outer expression is evaluated.</p>
-
-<p>All in all, it looks like we have a few cases down at the lower levels of
-the parser - the operators, numbers - where we will have to generate
-bytecode. And the rest of our features are actually handled implicitly by
-the expression parser, so we won&#39;t have to make any changes to keep them!</p>
-
-<p>Before we start converting our code to write bytes, let&#39;s look at two
-issues that may not be clear to you: why does our parser just
-&#39;magically&#39; support the correct order of evaluation, and why are
-dedicated opcodes significant?</p>
-
-<h2 id="toc_3714">Order of Evaluation</h2>
-
-<p>Just exactly how does our parser manage to get the order of evaluation
-correct? Because we told it to!</p>
-
-<p>If you remember, when we first started parsing expressions, we wrote
-code to emulate a four-function calculator. That code just evaluated
-expressions in the order they appeared. 3 + 4 * 5 was evaluated as
-(3+4=7) and then (7*5=35). That, we decided, was wrong.</p>
-
-<p>So we changed our code to use &quot;recursive descent.&quot; In this case, the
-expression evaluation code for the additive operators (plus and minus)
-knew (because we programmed it to know!) that multiplication and
-dividion (and other stuff) had a higher precedence than the additive
-operators. So before the additive expression code processes anything, it
-calls the multiplicative part of the parser to check for
-higher-precedence ops. And the multiplicative part, before it does
-anything, calls the atom part to check for parens, etc.</p>
-
-<p>In this way, we have coded the parser to implicitly <em>know</em> what the
-precedence of the operators is, and to automatically implement the
-correct order of evaluation. If we generate the code to evaluate our
-expressions in the same order we have been computing the results, then
-whatever code we generate should also compute correct results, since it
-will model its order of evaluation on the order we are using!</p>
-
-<h2 id="toc_3715">Dedicated Opcodes</h2>
-
-<p>Believe it or not, having dedicated opcodes to support things like
-multiplication is a relatively recent thing. In the 1990&#39;s, the SPARC
-processor (from Sun Microsystems) was shipped with no multiply or divide
-instruction in hardware. Instead, the reference manual included software
-routines that could be used to perform arbitrary integer multiply and divide
-operations using <em>multiply step</em> and <em>divide step</em> operations built into the
-CPU.</p>
-
-<p>Below is the shortest such routine, for unsigned integer multiplication
-(multiply two 32-bit numbers into a 64-bit result). Two things you need to
-know about the SPARC to have any hope of understanding this code are (1) the
-SPARC executes one additional operation during the &quot;branch delay&quot; while the
-processor is waiting for a branch target to be fetched, so the next op after
-a branch or return statement will be executed always; and (2) the SPARC
-processors had a model of three groups of registers that would be shifted
-slightly on each subroutine call, so that the %o registers mentioned below
-are all visible to the caller on return.:</p>
-<div class="highlight"><pre><code class="gas"><span class="err">/*</span>
- <span class="err">*</span> <span class="nf">Procedure</span> <span class="no">to</span> <span class="no">perform</span> <span class="no">a</span> <span class="mi">32</span> <span class="no">by</span> <span class="mi">32</span> <span class="no">unsigned</span> <span class="no">multiply.</span>
- <span class="err">*</span> <span class="nf">Pass</span> <span class="no">the</span> <span class="no">multiplier</span> <span class="no">in</span> <span class="nv">%o0</span><span class="p">,</span> <span class="no">and</span> <span class="no">the</span> <span class="no">multiplicand</span> <span class="no">in</span> <span class="nv">%o1.</span>
- <span class="err">*</span> <span class="nf">The</span> <span class="no">least</span> <span class="no">significant</span> <span class="mi">32</span> <span class="no">bits</span> <span class="no">of</span> <span class="no">the</span> <span class="no">result</span> <span class="no">will</span> <span class="no">be</span> <span class="no">returned</span> <span class="no">in</span> <span class="nv">%o0</span><span class="p">,</span>
- <span class="err">*</span> <span class="nf">and</span> <span class="no">the</span> <span class="no">most</span> <span class="no">significant</span> <span class="no">in</span> <span class="nv">%o1.</span> <span class="p">*</span>
- <span class="err">*</span> <span class="nf">This</span> <span class="no">code</span> <span class="no">has</span> <span class="no">an</span> <span class="no">optimization</span> <span class="no">built-in</span> <span class="no">for</span> <span class="no">short</span> <span class="p">(</span><span class="no">less</span> <span class="no">than</span> <span class="mi">13</span> <span class="no">bit</span><span class="p">)</span>
- <span class="err">*</span> <span class="nf">multiplies.</span> <span class="no">Short</span> <span class="no">multiplies</span> <span class="no">require</span> <span class="mi">25</span> <span class="no">instruction</span> <span class="no">cycles</span><span class="p">,</span> <span class="no">and</span> <span class="no">long</span> <span class="no">ones</span>
- <span class="err">*</span> <span class="nf">require</span> <span class="mi">46</span> <span class="no">or</span> <span class="mi">48</span> <span class="no">instruction</span> <span class="no">cycles.</span>
- <span class="err">*</span>
- <span class="err">*</span> <span class="nf">This</span> <span class="no">code</span> <span class="no">indicates</span> <span class="no">that</span> <span class="no">overflow</span> <span class="no">has</span> <span class="no">occurred</span><span class="p">,</span> <span class="no">by</span> <span class="no">leaving</span> <span class="no">the</span> <span class="no">Z</span> <span class="no">condition</span>
- <span class="err">*</span> <span class="nf">code</span> <span class="no">clear.</span> <span class="no">The</span> <span class="no">following</span> <span class="no">call</span> <span class="no">sequence</span> <span class="no">would</span> <span class="no">be</span> <span class="no">used</span> <span class="no">if</span> <span class="no">you</span> <span class="no">wish</span> <span class="no">to</span>
- <span class="err">*</span> <span class="nf">deal</span> <span class="no">with</span> <span class="no">overflow</span><span class="p">:</span>
- <span class="err">*</span>
- <span class="err">*</span> <span class="nf">call</span>         <span class="no">.umul</span>
- <span class="err">*</span> <span class="nf">nop</span>                          <span class="err">!</span> <span class="p">(</span><span class="no">or</span> <span class="no">set</span> <span class="no">up</span> <span class="no">last</span> <span class="no">parameter</span> <span class="no">here</span><span class="p">)</span>
- <span class="err">*</span> <span class="nf">bnz</span>          <span class="no">overflow_code</span>   <span class="err">!</span> <span class="p">(</span><span class="no">or</span> <span class="no">tnz</span> <span class="no">to</span> <span class="no">overflow</span> <span class="no">handler</span><span class="p">)</span>
- <span class="err">*</span>
- <span class="err">*</span> <span class="nf">Note</span> <span class="no">that</span> <span class="no">this</span> <span class="no">is</span> <span class="no">a</span> <span class="no">leaf</span> <span class="no">routine</span><span class="err">;</span> <span class="no">i.e.</span> <span class="no">it</span> <span class="no">calls</span> <span class="no">no</span> <span class="no">other</span> <span class="no">routines</span> <span class="no">and</span> <span class="no">does</span>
- <span class="err">*</span> <span class="nf">all</span> <span class="no">of</span> <span class="no">its</span> <span class="no">work</span> <span class="no">in</span> <span class="no">the</span> <span class="no">out</span> <span class="no">registers.</span> <span class="no">Thus</span><span class="p">,</span> <span class="no">the</span> <span class="no">usual</span> <span class="no">SAVE</span> <span class="no">and</span> <span class="no">RESTORE</span>
- <span class="err">*</span> <span class="nf">instructions</span> <span class="no">are</span> <span class="no">not</span> <span class="no">needed.</span>
- <span class="err">*/</span>
-    <span class="nf">global</span>      <span class="no">.umul</span>
-<span class="nl">.umul:</span>
-    <span class="nf">or</span>          <span class="nv">%o0</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">logical</span> <span class="no">or</span> <span class="no">of</span> <span class="no">multiplier</span> <span class="no">and</span> <span class="no">multiplicand</span>
-    <span class="nf">mov</span>         <span class="nv">%o0</span><span class="p">,</span> <span class="nv">%y</span>         <span class="err">!</span> <span class="no">multiplier</span> <span class="no">to</span> <span class="no">Y</span> <span class="no">register</span>
-    <span class="nf">andncc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="mi">0xfff</span><span class="p">,</span> <span class="nv">%o5</span> <span class="err">!</span> <span class="no">mask</span> <span class="no">out</span> <span class="no">lower</span> <span class="mi">12</span> <span class="no">bits</span>
-    <span class="nf">be</span>          <span class="no">mul_shortway</span>    <span class="err">!</span> <span class="no">can</span> <span class="no">do</span> <span class="no">it</span> <span class="no">the</span> <span class="no">short</span> <span class="no">way</span>
-    <span class="nf">andcc</span>       <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">zero</span> <span class="no">the</span> <span class="no">partial</span> <span class="no">product</span> <span class="no">and</span> <span class="no">clear</span> <span class="no">N</span> <span class="no">and</span> <span class="no">V</span> <span class="no">conditions</span>
-    <span class="err">!</span>
-    <span class="err">!</span> <span class="nf">long</span> <span class="no">multiply</span>
-    <span class="err">!</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">first</span> <span class="no">iteration</span> <span class="no">of</span> <span class="mi">33</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="mi">32</span><span class="no">nd</span> <span class="no">iteration</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">last</span> <span class="no">iteration</span> <span class="no">only</span> <span class="no">shifts</span>
-<span class="err">/*</span>
- <span class="err">*</span> <span class="nf">Normally</span><span class="p">,</span> <span class="no">with</span> <span class="no">the</span> <span class="no">shift</span> <span class="no">and</span> <span class="no">add</span> <span class="no">approach</span><span class="p">,</span> <span class="no">if</span> <span class="no">both</span> <span class="no">numbers</span> <span class="no">are</span>
- <span class="err">*</span> <span class="nf">nonnegative</span><span class="p">,</span> <span class="no">you</span> <span class="no">get</span> <span class="no">the</span> <span class="no">correct</span> <span class="no">result.</span> <span class="no">With</span> <span class="mi">32</span><span class="p">-</span><span class="no">bit</span> <span class="no">twos-complement</span>
- <span class="err">*</span> <span class="nf">numbers</span><span class="p">,</span> <span class="p">-</span><span class="no">x</span> <span class="no">can</span> <span class="no">be</span> <span class="no">represented</span> <span class="no">as</span> <span class="p">((</span><span class="mi">2</span> <span class="p">-</span> <span class="p">(</span><span class="no">x</span><span class="err">/</span><span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">)))</span> <span class="no">mod</span> <span class="mi">2</span><span class="p">)</span> <span class="p">*</span> <span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">.</span>
- <span class="err">*</span> <span class="nf">To</span> <span class="no">avoid</span> <span class="no">a</span> <span class="no">lot</span> <span class="no">of</span> <span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="err">’</span><span class="no">s</span><span class="p">,</span> <span class="no">we</span> <span class="no">can</span> <span class="no">just</span> <span class="no">move</span> <span class="no">the</span> <span class="no">radix</span> <span class="no">point</span> <span class="no">up</span> <span class="no">to</span> <span class="no">be</span>
- <span class="err">*</span> <span class="nf">just</span> <span class="no">to</span> <span class="no">the</span> <span class="no">left</span> <span class="no">of</span> <span class="no">the</span> <span class="no">sign</span> <span class="no">bit.</span> <span class="no">So</span><span class="p">:</span>
- <span class="err">*</span>
- <span class="err">*</span>  <span class="nf">x</span> <span class="p">*</span>  <span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
- <span class="err">*</span> <span class="err">-</span><span class="nf">x</span> <span class="p">*</span>  <span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">x</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span> <span class="p">*</span> <span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span><span class="no">y</span> <span class="p">-</span> <span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
- <span class="err">*</span>  <span class="nf">x</span> <span class="p">*</span> <span class="p">-</span><span class="no">y</span> <span class="err">=</span> <span class="no">x</span> <span class="p">*</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">y</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span><span class="no">x</span> <span class="p">-</span> <span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
- <span class="err">*</span> <span class="err">-</span><span class="nf">x</span> <span class="p">*</span> <span class="p">-</span><span class="no">y</span> <span class="err">=</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">x</span><span class="p">)</span> <span class="p">*</span> <span class="p">(</span><span class="mi">2</span> <span class="p">-</span> <span class="no">y</span><span class="p">)</span> <span class="err">=</span> <span class="p">(</span><span class="mi">4</span> <span class="p">-</span> <span class="mi">2</span><span class="no">x</span> <span class="p">-</span> <span class="mi">2</span><span class="no">y</span> <span class="err">+</span> <span class="no">xy</span><span class="p">)</span> <span class="no">mod</span> <span class="mi">2</span>
- <span class="err">*</span>
- <span class="err">*</span> <span class="nf">For</span> <span class="no">signed</span> <span class="no">multiplies</span><span class="p">,</span> <span class="no">we</span> <span class="no">subtract</span> <span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">)</span> <span class="p">*</span> <span class="no">x</span> <span class="no">from</span> <span class="no">the</span> <span class="no">partial</span>
- <span class="err">*</span> <span class="nf">product</span> <span class="no">to</span> <span class="no">fix</span> <span class="no">this</span> <span class="no">problem</span> <span class="no">for</span> <span class="no">negative</span> <span class="no">multipliers</span> <span class="p">(</span><span class="no">see</span> <span class="no">.mul</span> <span class="no">in</span>
- <span class="err">*</span> <span class="nf">Section</span> <span class="mi">1</span><span class="p">.</span>
- <span class="err">*</span> <span class="nf">Because</span> <span class="no">of</span> <span class="no">the</span> <span class="no">way</span> <span class="no">the</span> <span class="no">shift</span> <span class="no">into</span> <span class="no">the</span> <span class="no">partial</span> <span class="no">product</span> <span class="no">is</span> <span class="no">calculated</span>
- <span class="err">*</span> <span class="err">(</span><span class="nf">N</span> <span class="no">xor</span> <span class="no">V</span><span class="p">),</span> <span class="no">this</span> <span class="no">term</span> <span class="no">is</span> <span class="no">automatically</span> <span class="no">removed</span> <span class="no">for</span> <span class="no">the</span> <span class="no">multiplicand</span><span class="p">,</span>
- <span class="err">*</span> <span class="nf">so</span> <span class="no">we</span> <span class="no">don</span><span class="err">&#39;</span><span class="no">t</span> <span class="no">have</span> <span class="no">to</span> <span class="no">adjust.</span>
- <span class="err">*</span>
- <span class="err">*</span> <span class="nf">But</span> <span class="no">for</span> <span class="no">unsigned</span> <span class="no">multiplies</span><span class="p">,</span> <span class="no">the</span> <span class="no">high</span> <span class="no">order</span> <span class="no">bit</span> <span class="no">wasn</span><span class="err">&#39;</span><span class="no">t</span> <span class="no">a</span> <span class="no">sign</span> <span class="no">bit</span><span class="p">,</span>
- <span class="err">*</span> <span class="nf">and</span> <span class="no">the</span> <span class="no">correction</span> <span class="no">is</span> <span class="no">wrong.</span> <span class="no">So</span> <span class="no">for</span> <span class="no">unsigned</span> <span class="no">multiplies</span> <span class="no">where</span> <span class="no">the</span>
- <span class="err">*</span> <span class="nf">high</span> <span class="no">order</span> <span class="no">bit</span> <span class="no">is</span> <span class="no">one</span><span class="p">,</span> <span class="no">we</span> <span class="no">end</span> <span class="no">up</span> <span class="no">with</span> <span class="no">xy</span> <span class="p">-</span> <span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">)</span> <span class="p">*</span> <span class="no">y.</span> <span class="no">To</span> <span class="no">fix</span> <span class="no">it</span><span class="p">,</span>
- <span class="err">*</span> <span class="nf">we</span> <span class="no">add</span> <span class="no">y</span> <span class="p">*</span> <span class="p">(</span><span class="mi">2</span><span class="p">**</span><span class="mi">32</span><span class="p">).</span>
- <span class="err">*/</span>
-    <span class="nf">tst</span>         <span class="nv">%o1</span>
-    <span class="nf">bge</span>         <span class="no">lf</span>
-    <span class="nf">nop</span>
-    <span class="nf">add</span>         <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o0</span><span class="p">,</span> <span class="nv">%o4</span>
-<span class="err">1:</span>
-    <span class="nf">rd</span>          <span class="nv">%y</span><span class="p">,</span> <span class="nv">%o0</span>         <span class="err">!</span> <span class="no">return</span> <span class="no">least</span> <span class="no">sig.</span> <span class="no">bits</span> <span class="no">of</span> <span class="no">prod</span>
-    <span class="nf">retl</span>                        <span class="err">!</span> <span class="no">leaf-routine</span> <span class="no">return</span>
-    <span class="nf">addcc</span>       <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o1</span>   <span class="err">!</span> <span class="no">delay</span> <span class="no">slot</span><span class="err">;</span> <span class="no">return</span> <span class="no">high</span> <span class="no">bits</span> <span class="no">and</span> <span class="no">set</span>
-                                <span class="err">!</span> <span class="nf">zero</span> <span class="no">bit</span> <span class="no">appropriately</span>
-    <span class="err">!</span>
-    <span class="err">!</span> <span class="nf">short</span> <span class="no">multiply</span>
-    <span class="err">!</span>
-<span class="nl">mul_shortway:</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">first</span> <span class="no">iteration</span> <span class="no">of</span> <span class="mi">13</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o1</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="mi">12</span><span class="no">th</span> <span class="no">iteration</span>
-    <span class="nf">mulscc</span>      <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o4</span>   <span class="err">!</span> <span class="no">last</span> <span class="no">iteration</span> <span class="no">only</span> <span class="no">shifts</span>
-
-    <span class="nf">rd</span>          <span class="nv">%y</span><span class="p">,</span> <span class="nv">%o5</span>
-    <span class="nf">sll</span>         <span class="nv">%o4</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="nv">%o4</span>    <span class="err">!</span> <span class="no">left</span> <span class="no">shift</span> <span class="no">partial</span> <span class="no">product</span> <span class="no">by</span> <span class="mi">12</span> <span class="no">bits</span>
-    <span class="nf">srl</span>         <span class="nv">%o5</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="nv">%o5</span>    <span class="err">!</span> <span class="no">right</span> <span class="no">shift</span> <span class="no">product</span> <span class="no">by</span> <span class="mi">20</span> <span class="no">bits</span>
-    <span class="nf">or</span>          <span class="nv">%o5</span><span class="p">,</span> <span class="nv">%o4</span><span class="p">,</span> <span class="nv">%o0</span>   <span class="err">!</span> <span class="no">merge</span> <span class="no">for</span> <span class="no">true</span> <span class="no">product</span>
-    <span class="err">!</span>
-    <span class="err">!</span> <span class="nf">The</span> <span class="no">delay</span> <span class="no">instruction</span> <span class="p">(</span><span class="no">addcc</span><span class="p">)</span> <span class="no">moves</span> <span class="no">zero</span> <span class="no">into</span> <span class="nv">%o1</span><span class="p">,</span>
-    <span class="err">!</span> <span class="nf">sets</span> <span class="no">the</span> <span class="no">zero</span> <span class="no">condition</span> <span class="no">code</span><span class="p">,</span> <span class="no">and</span> <span class="no">clears</span> <span class="no">the</span> <span class="no">other</span> <span class="no">conditions.</span>
-    <span class="err">!</span> <span class="nf">This</span> <span class="no">is</span> <span class="no">the</span> <span class="no">equivalent</span> <span class="no">result</span> <span class="no">to</span> <span class="no">a</span> <span class="no">long</span> <span class="no">umultiply</span> <span class="no">which</span> <span class="no">doesn</span><span class="err">&#39;</span><span class="no">t</span> <span class="no">overflow.</span>
-    <span class="err">!</span>
-    <span class="nf">retl</span>                        <span class="err">!</span> <span class="no">leaf</span> <span class="no">routine</span> <span class="no">return</span>
-    <span class="nf">addcc</span>       <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%g0</span><span class="p">,</span> <span class="nv">%o1</span>
-</code></pre>
-</div>
-
-<p>For more information on the SPARC architecture, see <a href="http://www.sparc.com/standards/V8.pdf">The SPARC
-Architecture Manual</a>.</p>
-
-<p>The point of this is not for you to learn SPARC assembly, but to
-demonstrate that even &#39;modern&#39; computers may have different levels of
-support for some operations than you expect. The Python VM provides a
-single opcode to perform a multiply. But that opcode probably performs
-an integer (or long) multiply behind the scenes, and <em>that</em> may in turn
-wind up executing the routine above, if you happen to be on an old,
-SPARC-based computer.</p>
-
-<p>If you wind up writing a compiler for some target other than the Python
-VM, you will need to concern yourself with this stuff. On modern
-(superscalar) CPUs that include a MUL instruction, it will typically
-take 10 cycles, give or take 10. (Yes, it is possible to get a 0-cycle
-multiply. You need a deep pipeline, or a cache miss.) One of the reasons
-I like writing for the Python VM is that I can gloss over all these
-issues. :-)</p>
-
-<h2 id="toc_3716">Generating Bytecode</h2>
-
-<p>With those questions answered, let&#39;s get on with generating bytecode!
-We&#39;ll start with a copy of the cradle from chapter 2, and a copy of the
-bytecode module from chapter 3. The first thing we&#39;ll have to change - and
-yes, this change will be to the cradle.py file - will be the behavior of the
-emit and emitln functions. First, because there is no emitln when generating
-bytecode, and second because we will be writing to a code object, not to a
-file.</p>
-
-<p>How should we test our code? In chapter 3 we created a CodeObject, then
-called the <code>instruction_match()</code> method on the object. I think that&#39;s a
-reasonable place for us to start, except that we can let the compile
-method return the code object. (Surprise! This is one of the behaviors
-of Python&#39;s built-in compile function, too.)</p>
-
+    rd          %y, %o5
+    sll         %o4, 12, %o4    ! left shift partial product by 12 bits
+    srl         %o5, 20, %o5    ! right shift product by 20 bits
+    or          %o5, %o4, %o0   ! merge for true product
+    !
+    ! The delay instruction (addcc) moves zero into %o1,
+    ! sets the zero condition code, and clears the other conditions.
+    ! This is the equivalent result to a long umultiply which doesn&#39;t overflow.
+    !
+    retl                        ! leaf routine return
+    addcc       %g0, %g0, %o1</code></pre>
+<p>For more information on the SPARC architecture, see <a href="http://www.sparc.com/standards/V8.pdf">The SPARC Architecture Manual</a>.</p>
+<p>The point of this is not for you to learn SPARC assembly, but to demonstrate that even ‘modern’ computers may have different levels of support for some operations than you expect. The Python VM provides a single opcode to perform a multiply. But that opcode probably performs an integer (or long) multiply behind the scenes, and <em>that</em> may in turn wind up executing the routine above, if you happen to be on an old, SPARC-based computer.</p>
+<p>If you wind up writing a compiler for some target other than the Python VM, you will need to concern yourself with this stuff. On modern (superscalar) CPUs that include a MUL instruction, it will typically take 10 cycles, give or take 10. (Yes, it is possible to get a 0-cycle multiply. You need a deep pipeline, or a cache miss.) One of the reasons I like writing for the Python VM is that I can gloss over all these issues. :-)</p>
+<h2 id="generating-bytecode-1"><a href="#generating-bytecode-1">Generating Bytecode</a></h2>
+<p>With those questions answered, let’s get on with generating bytecode! We’ll start with a copy of the cradle from chapter 2, and a copy of the bytecode module from chapter 3. The first thing we’ll have to change - and yes, this change will be to the cradle.py file - will be the behavior of the emit and emitln functions. First, because there is no emitln when generating bytecode, and second because we will be writing to a code object, not to a file.</p>
+<p>How should we test our code? In chapter 3 we created a CodeObject, then called the <code>instruction_match()</code> method on the object. I think that’s a reasonable place for us to start, except that we can let the compile method return the code object. (Surprise! This is one of the behaviors of Python’s built-in compile function, too.)</p>
 <p>Thus, a test case will look something like this:</p>
-<div class="highlight"><pre><code class="text">def test_something(self):
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_something(<span class="ot">self</span>):
     ... setup ...
-    co = compiler.compile(...)
-    asm = &quot;&quot;&quot; some assembly code &quot;&quot;&quot;
-    instructions_match(co, asm)
-</code></pre>
-</div>
+    co = compiler.<span class="dt">compile</span>(...)
+    asm = <span class="st">&quot;&quot;&quot; some assembly code &quot;&quot;&quot;</span>
+    instructions_match(co, asm)</code></pre>
+<p>Let’s go ahead and write the first test case and store it into <code>tests/expr1_tests.py</code>. We’ll extract the setup and test code into an <code>assertExpr()</code>: subroutine, to make writing test cases easy:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="ch">from</span> io <span class="ch">import</span> StringIO
+<span class="ch">import</span> unittest
 
-<p>Let&#39;s go ahead and write the first test case and store it into
-<code>tests/expr1_tests.py</code>. We&#39;ll extract the setup and test code into an
-<code>assertExpr()</code>: subroutine, to make writing test cases easy:</p>
-<div class="highlight"><pre><code class="text">from io import StringIO
-import unittest
+<span class="ch">from</span> ch04.bytecode <span class="ch">import</span> instructions_match
+<span class="ch">from</span> ch04 <span class="ch">import</span> expr1 <span class="ch">as</span> compiler
 
-from ch04.bytecode import instructions_match
-from ch04 import expr1 as compiler
+<span class="kw">class</span> TestCompiler(unittest.TestCase):
 
-class TestCompiler(unittest.TestCase):
-
-    def assertExpr(self, text, asm):
+    <span class="kw">def</span> assertExpr(<span class="ot">self</span>, text, asm):
         compiler.init(inp=StringIO(text))
-        co = compiler.compile()
+        co = compiler.<span class="dt">compile</span>()
         instructions_match(co, asm)
 
-    def test_constant(self):
-        asm = &quot;&quot;&quot;
-            LOAD_CONST 1 (7)
-            RETURN_VALUE
-        &quot;&quot;&quot;
-        self.assertExpr(&quot;7&quot;, asm)
-</code></pre>
-</div>
+    <span class="kw">def</span> test_constant(<span class="ot">self</span>):
+        asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">            LOAD_CONST 1 (7)</span>
+<span class="st">            RETURN_VALUE</span>
+<span class="st">        &quot;&quot;&quot;</span>
+        <span class="ot">self</span>.assertExpr(<span class="st">&quot;7&quot;</span>, asm)</code></pre>
+<p>Run the tests, and guess what? Nothing works. Well, let’s get to solving the problems. First, let’s implement an emit routine that uses a code object. This goes in cradle.py.</p>
+<pre class="sourceCode python"><code class="sourceCode python">    <span class="kw">def</span> emit(op, arg=<span class="ot">None</span>):
+        _Code.append(op, arg)</code></pre>
+<p>Well, that was easy. But we’ll have to add the module variable _Code, and some code in the init function to support it. Here’s my version. Notice that I’ve removed the _Output variable in favor of _Code:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="co">##### Output functions</span>
 
-<p>Run the tests, and guess what? Nothing works. Well, let&#39;s get to solving
-the problems. First, let&#39;s implement an emit routine that uses a code object. This goes in cradle.py.</p>
-<div class="highlight"><pre><code class="text">    def emit(op, arg=None):
-        _Code.append(op, arg)
-</code></pre>
-</div>
+_Code = <span class="ot">None</span>
+<span class="co">&quot;&quot;&quot; CodeObject for compiled results. &quot;&quot;&quot;</span>
 
-<p>Well, that was easy. But we&#39;ll have to add the module variable _Code,
-and some code in the init function to support it. Here&#39;s my version. Notice
-that I&#39;ve removed the _Output variable in favor of _Code:</p>
-<div class="highlight"><pre><code class="text">##### Output functions
-
-_Code = None
-&quot;&quot;&quot; CodeObject for compiled results. &quot;&quot;&quot;
-
-def emit(op, arg=None):
+<span class="kw">def</span> emit(op, arg=<span class="ot">None</span>):
     _Code.append(op, arg)
 
-##### Processing
+<span class="co">##### Processing</span>
 
-def init(inp=None, out=None, err=None):
-    global _Code, _Input, _Error
-    _Error = err if err is not None else sys.stderr
-    _Input = inp if inp is not None else _Input
-    # &#39;prime the pump&#39; to read first character, etc.
+<span class="kw">def</span> init(inp=<span class="ot">None</span>, out=<span class="ot">None</span>, err=<span class="ot">None</span>):
+    <span class="kw">global</span> _Code, _Input, _Error
+    _Error = err <span class="kw">if</span> err is not <span class="ot">None</span> <span class="kw">else</span> sys.stderr
+    _Input = inp <span class="kw">if</span> inp is not <span class="ot">None</span> <span class="kw">else</span> _Input
+    <span class="co"># &#39;prime the pump&#39; to read first character, etc.</span>
     get_char()
-    _Code = bytecode.CodeObject()
-</code></pre>
-</div>
-
-<p>With that out of the way, let&#39;s implement a dumb expression parser that
-only recognizes a single number. First, copy the cradle over to a new file.
-Mine is called expr1.py. You&#39;ll remember that this is how we got
-started, so it should be easy:</p>
-<div class="highlight"><pre><code class="text">def compile():
+    _Code = bytecode.CodeObject()</code></pre>
+<p>With that out of the way, let’s implement a dumb expression parser that only recognizes a single number. First, copy the cradle over to a new file. Mine is called expr1.py. You’ll remember that this is how we got started, so it should be easy:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> <span class="dt">compile</span>():
     expression()
-    return _Code
+    <span class="kw">return</span> _Code
 
-def expression():
-    num = int(get_number())
-    emit(&#39;LOAD_CONST&#39;, num)
-    emit(&#39;RETURN_VALUE&#39;)
-</code></pre>
-</div>
-
-<p>Well, that seemed to work. But of course, it&#39;s not very challenging.  Let&#39;s
-go to a mixed model that can support additive operators or a single value:</p>
-<div class="highlight"><pre><code class="text">def expression():
+<span class="kw">def</span> expression():
+    num = <span class="dt">int</span>(get_number())
+    emit(<span class="st">&#39;LOAD_CONST&#39;</span>, num)
+    emit(<span class="st">&#39;RETURN_VALUE&#39;</span>)</code></pre>
+<p>Well, that seemed to work. But of course, it’s not very challenging. Let’s go to a mixed model that can support additive operators or a single value:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expression():
     expr_addop()
 
-def expr_addop():
+<span class="kw">def</span> expr_addop():
     expr_atom()
-    if Peek == &#39;+&#39;:
+    <span class="kw">if</span> Peek == <span class="st">&#39;+&#39;</span>:
         expr_add()
-    elif Peek == &#39;-&#39;:
+    <span class="kw">elif</span> Peek == <span class="st">&#39;-&#39;</span>:
         expr_subtract()
 
-def expr_atom():
-    if Peek.isdigit():
-        atom = int(get_number())
-        emit(&#39;LOAD_CONST&#39;, atom)
-    else:
-        expected(&#39;Atom&#39;)
+<span class="kw">def</span> expr_atom():
+    <span class="kw">if</span> Peek.isdigit():
+        atom = <span class="dt">int</span>(get_number())
+        emit(<span class="st">&#39;LOAD_CONST&#39;</span>, atom)
+    <span class="kw">else</span>:
+        expected(<span class="st">&#39;Atom&#39;</span>)
 
-def expr_add():
-    match(&#39;+&#39;)
-    # WHAT GOES HERE?
-</code></pre>
-</div>
-
-<p>And here we run into a problem in the <code>expr\_add</code> function. With the &quot;do
-it now!&quot; model that we were using in chapter 2, we passed around the
-intermediate results as parameters to the various functions. If you&#39;ll
-recall, the <code>expr\_addop</code> code from chapter 2 looked like this:</p>
-<div class="highlight"><pre><code class="text">def expr_addop():
+<span class="kw">def</span> expr_add():
+    match(<span class="st">&#39;+&#39;</span>)
+    <span class="co"># WHAT GOES HERE?</span></code></pre>
+<p>And here we run into a problem in the <code>expr\_add</code> function. With the “do it now!” model that we were using in chapter 2, we passed around the intermediate results as parameters to the various functions. If you’ll recall, the <code>expr\_addop</code> code from chapter 2 looked like this:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expr_addop():
     result = expr_mulop()
-    while Peek is not None and Peek in &quot;+-&quot;:
-        if Peek == &quot;+&quot;:
+    <span class="kw">while</span> Peek is not <span class="ot">None</span> and Peek in <span class="st">&quot;+-&quot;</span>:
+        <span class="kw">if</span> Peek == <span class="st">&quot;+&quot;</span>:
             result = expr_add(result)
-        elif Peek == &quot;-&quot;:
+        <span class="kw">elif</span> Peek == <span class="st">&quot;-&quot;</span>:
             result = expr_subtract(result)
-    return result
-</code></pre>
-</div>
-
-<p>The expr_mulop code computed a multiplication, or possibly just
-returned an atom. Then if an addop was present, the initial value
-(result) was passed in to the add or subtract code, and a new result was
-computed, until eventually there were no more addops. Then the final
-result was returned.</p>
-
-<p>How are we going to pass the result around when we don&#39;t actually have
-the result? The result, like everything else, has to be managed in the
-bytecode we are writing!</p>
-
-<h2 id="toc_3717">Register Management</h2>
-
-<p>Ironically, we&#39;re talking about <strong>register management,</strong> on a machine that
-has no registers. But that&#39;s okay, because if there <em>were</em> some registers,
-we would need to manage them, and we&#39;d be having the same conversation at
-the same place.</p>
-
-<p>Sometimes this is referred to as the <strong>calling convention(s)</strong> or as the
-<strong>ABI</strong> (application binary interface). But regardless, there are some
-questions that have to be answered, and this is the place to do it.</p>
-
-<p>On the Intel x86 platform, for example, there are registers. And certain
-opcodes, like MUL, use both the AX and DX registers to hold their
-results. So you can&#39;t leave any value that you need to keep in the DX
-register while doing a multiply. This begs the question, are there any
-registers that should always be saved? Who should save them - the
-caller, or the callee?</p>
-
-<p>It doesn&#39;t matter to us, because the answers are all the same: the
-Python VM has no registers, so everything has to go on the stack. But
-when you are writing a compiler for a different system, you will have to
-know what the questions are, and you will have to know the answers, too!</p>
-
-<p>Anyway, here are some questions. See if you can figure out the answers.
-(Hint: look up!)</p>
-
-<ol>
+    <span class="kw">return</span> result</code></pre>
+<p>The expr_mulop code computed a multiplication, or possibly just returned an atom. Then if an addop was present, the initial value (result) was passed in to the add or subtract code, and a new result was computed, until eventually there were no more addops. Then the final result was returned.</p>
+<p>How are we going to pass the result around when we don’t actually have the result? The result, like everything else, has to be managed in the bytecode we are writing!</p>
+<h2 id="register-management"><a href="#register-management">Register Management</a></h2>
+<p>Ironically, we’re talking about <strong>register management,</strong> on a machine that has no registers. But that’s okay, because if there <em>were</em> some registers, we would need to manage them, and we’d be having the same conversation at the same place.</p>
+<p>Sometimes this is referred to as the <strong>calling convention(s)</strong> or as the <strong>ABI</strong> (application binary interface). But regardless, there are some questions that have to be answered, and this is the place to do it.</p>
+<p>On the Intel x86 platform, for example, there are registers. And certain opcodes, like MUL, use both the AX and DX registers to hold their results. So you can’t leave any value that you need to keep in the DX register while doing a multiply. This begs the question, are there any registers that should always be saved? Who should save them - the caller, or the callee?</p>
+<p>It doesn’t matter to us, because the answers are all the same: the Python VM has no registers, so everything has to go on the stack. But when you are writing a compiler for a different system, you will have to know what the questions are, and you will have to know the answers, too!</p>
+<p>Anyway, here are some questions. See if you can figure out the answers. (Hint: look up!)</p>
+<ol style="list-style-type: decimal">
 <li><p>Q: How can we hold a number that we compute with expr_atom?</p>
-
-<p>A: &quot;the Python VM has no registers, so everything has to go on the
-stack.&quot;</p></li>
-<li><p>Q: How can we store a number temporarily, so that a following ADD
-or SUBTRACT operation can find it?</p>
-
+<p>A: “the Python VM has no registers, so everything has to go on the stack.”</p></li>
+<li><p>Q: How can we store a number temporarily, so that a following ADD or SUBTRACT operation can find it?</p>
 <p>A: ______</p></li>
-<li><p>Q: How can we store the arguments to a MULTIPLY or DIVIDE
-operation?</p>
-
+<li><p>Q: How can we store the arguments to a MULTIPLY or DIVIDE operation?</p>
 <p>A: ______</p></li>
-<li><p>Q: What about unary operations? How can we set up a number for
-those?</p>
-
+<li><p>Q: What about unary operations? How can we set up a number for those?</p>
 <p>A: ______</p></li>
 </ol>
+<p>So, how did you do? I hope you got all the answers right. And I certainly hope all your answers were the same. Because this is how we manage the values we want to pass around in the Python VM: they go on the stack!</p>
+<p>If we are going to do an add of two numbers, we set it up by putting the first number on the stack, then putting the second number on the stack, and then doing a BINARY_ADD, which takes (pops) two numbers off the stack, and puts (pushes) their sum on the stack.</p>
+<p>What we need to do, then, is to trust that all the steps before us have configured the stack the way it needs to be configured. Thus, if the add and subtract (and multiply, divide, modulus, …) operators need a left operand to be on the stack, we just assume that it’s there. (And write lots of test cases to make <em>damn sure</em> that we’re right!) Let’s give it a try:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expr_add():
+    <span class="co"># Assume first addend is already on stack.</span>
+    match(<span class="st">&#39;+&#39;</span>)
+    expr_atom() <span class="co"># Read second addend, put on stack.</span>
+    emit(<span class="st">&#39;BINARY_ADD&#39;</span>)</code></pre>
+<p>And that’s it! As long as we write all the other code correctly, to leave their results on the stack, we can assume that the incoming parameter is on the stack, and then add the numbers we need to add, and leave our own results on the stack.</p>
+<p>Let’s catch up on our test cases, and then go a little bit farther. Add test cases for all four basic operations, plus some test cases for operator precedence. (Feel free to copy them from the tests we wrote in chapter 2!) Here are mine:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_add(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (1)</span>
+<span class="st">        LOAD_CONST 2 (8)</span>
+<span class="st">        BINARY_ADD</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;1+8&quot;</span>, asm)
 
-<p>So, how did you do? I hope you got all the answers right. And I
-certainly hope all your answers were the same. Because this is how we
-manage the values we want to pass around in the Python VM: they go on
-the stack!</p>
+<span class="kw">def</span> test_subtract(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (8)</span>
+<span class="st">        LOAD_CONST 2 (3)</span>
+<span class="st">        BINARY_SUBTRACT</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;8-3&quot;</span>, asm)
 
-<p>If we are going to do an add of two numbers, we set it up by putting the
-first number on the stack, then putting the second number on the stack, and
-then doing a BINARY_ADD, which takes (pops) two numbers off the stack, and
-puts (pushes) their sum on the stack.</p>
+<span class="kw">def</span> test_multiply(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (3)</span>
+<span class="st">        LOAD_CONST 2 (2)</span>
+<span class="st">        BINARY_MULTIPLY</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;3*2&quot;</span>, asm)
 
-<p>What we need to do, then, is to trust that all the steps before us have
-configured the stack the way it needs to be configured. Thus, if the add
-and subtract (and multiply, divide, modulus, ...) operators need a left
-operand to be on the stack, we just assume that it&#39;s there. (And write
-lots of test cases to make <em>damn sure</em> that we&#39;re right!) Let&#39;s give it
-a try:</p>
-<div class="highlight"><pre><code class="text">def expr_add():
-    # Assume first addend is already on stack.
-    match(&#39;+&#39;)
-    expr_atom() # Read second addend, put on stack.
-    emit(&#39;BINARY_ADD&#39;)
-</code></pre>
-</div>
+<span class="kw">def</span> test_divide(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (3)</span>
+<span class="st">        LOAD_CONST 2 (2)</span>
+<span class="st">        BINARY_FLOOR_DIVIDE</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;3/2&quot;</span>, asm)</code></pre>
+<p>The only tricky part is the opcode for division. Remember that I want all our expressions to use integer values, so we need to use the FLOOR instead of the TRUE division opcode.</p>
+<p>The code itself should be a snap, now. The precedence implementation is the same - add and subtract call mulop, multiply and divide call atom. If you have trouble, refer back to chapter 2.</p>
+<p>Once you have that working, let’s add support for parentheses and multiple operators (if you didn’t add them before). Again, we can take the test cases from chapter 2. Pay careful attention to the opcodes in test_multiple_binops, below. You have to understand how the additive and multiplicative precedence levels are working together to predict how the opcodes will be generated. Remember that mulop is basically “greedy,” while addop is basically “lazy.” This means that we interrupt the addop to insert a multiply, and a divide. That leaves the first argument (1) on the stack. It may seem strange, but we’re counting on all the intervening processing to just leave our value alone on the stack until we get back to it. And it works!:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_multiple_binops(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (1)</span>
+<span class="st">        LOAD_CONST 2 (2)</span>
+<span class="st">        LOAD_CONST 3 (4)</span>
+<span class="st">        BINARY_MULTIPLY</span>
+<span class="st">        LOAD_CONST 4 (3)</span>
+<span class="st">        BINARY_FLOOR_DIVIDE</span>
+<span class="st">        BINARY_ADD</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;1+2*4/3&quot;</span>, asm)
 
-<p>And that&#39;s it! As long as we write all the other code correctly, to
-leave their results on the stack, we can assume that the incoming
-parameter is on the stack, and then add the numbers we need to add, and
-leave our own results on the stack.</p>
-
-<p>Let&#39;s catch up on our test cases, and then go a little bit farther. Add
-test cases for all four basic operations, plus some test cases for
-operator precedence. (Feel free to copy them from the tests we wrote in
-chapter 2!) Here are mine:</p>
-<div class="highlight"><pre><code class="text">def test_add(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (1)
-        LOAD_CONST 2 (8)
-        BINARY_ADD
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;1+8&quot;, asm)
-
-def test_subtract(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (8)
-        LOAD_CONST 2 (3)
-        BINARY_SUBTRACT
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;8-3&quot;, asm)
-
-def test_multiply(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (3)
-        LOAD_CONST 2 (2)
-        BINARY_MULTIPLY
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;3*2&quot;, asm)
-
-def test_divide(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (3)
-        LOAD_CONST 2 (2)
-        BINARY_FLOOR_DIVIDE
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;3/2&quot;, asm)
-</code></pre>
-</div>
-
-<p>The only tricky part is the opcode for division. Remember that I want
-all our expressions to use integer values, so we need to use the FLOOR
-instead of the TRUE division opcode.</p>
-
-<p>The code itself should be a snap, now. The precedence implementation is
-the same - add and subtract call mulop, multiply and divide call atom.
-If you have trouble, refer back to chapter 2.</p>
-
-<p>Once you have that working, let&#39;s add support for parentheses and multiple
-operators (if you didn&#39;t add them before). Again, we can take the test cases
-from chapter 2. Pay careful attention to the opcodes in
-test_multiple_binops, below. You have to understand how the additive and
-multiplicative precedence levels are working together to predict how the
-opcodes will be generated. Remember that mulop is basically &quot;greedy,&quot; while
-addop is basically &quot;lazy.&quot; This means that we interrupt the addop to insert
-a multiply, and a divide. That leaves the first argument (1) on the stack.
-It may seem strange, but we&#39;re counting on all the intervening processing to
-just leave our value alone on the stack until we get back to it. And it
-works!:</p>
-<div class="highlight"><pre><code class="text">def test_multiple_binops(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (1)
-        LOAD_CONST 2 (2)
-        LOAD_CONST 3 (4)
-        BINARY_MULTIPLY
-        LOAD_CONST 4 (3)
-        BINARY_FLOOR_DIVIDE
-        BINARY_ADD
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;1+2*4/3&quot;, asm)
-
-def test_paren_expr(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (1)
-        LOAD_CONST 2 (2)
-        BINARY_ADD
-        LOAD_CONST 3 (3)
-        LOAD_CONST 4 (4)
-        BINARY_ADD
-        BINARY_MULTIPLY
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;(1+2)*(3+4)&quot;, asm)
-</code></pre>
-</div>
-
-<h2 id="toc_3718">Another Bug is Found</h2>
-
-<p>I made my <code>expr_atom</code> function recurse by calling expression. (As opposed
-to calling <code>expr_addop.)</code> And when I ran the <code>test_paren_expr</code> test, I
-discovered a bug: the <code>expression</code> function automatically appends a
-&#39;RETURN_VALUE&#39; opcode when it finishes. Oops! That will have to be moved to
-<code>compile,</code> instead. This is what the &#39;calling conventions&#39; mean: that
-function was expected to return a value. Returning a value means leaving it
-on the stack. Some other piece of code has to take the value off the stack.
-With that change, everything works.</p>
-
-<h2 id="toc_3719">Unary Precedence</h2>
-
-<p>I promised in chapter 2 that I would re-visit the issue of unary
-operator precedence. Before we start working on adding unary operators
-to our code, let&#39;s do that.</p>
-
-<p>Most programming languages, inspired by the C/Algol family tree, accept
-unary operators at pretty much any location. You can negate any single
-term just by putting a &#39;-&#39; in front of it.</p>
-
-<p>But there are a lot of mathematicians who feel that this is pointless.
-If you need to subtract a number, just subtract it! Don&#39;t bother with
-adding the negative. They feel that &quot;a - b&quot; is easier to read, and more
-sensible, than &quot;a + -b&quot; or &quot;-b + a&quot;.</p>
-
-<p>In this case, why not move the unary from the highest precedence to the
-lowestr?. Instead of allowing a negative sign in front of every term, why
-not allow at most one negative sign, right at the front of an expression.
-Everything else can be handled by changing add to subtract, or
-subtract to add, or by wrapping parens around a sub-expression.</p>
-
-<p>My own, personal, bias is to make my expression parser act like C. But
-if you&#39;re more mathematically inclined, maybe you want to speed things
-up by eliminating all the unary minuses except one. That would change the
-<code>expression</code> code to something like:</p>
-<div class="highlight"><pre><code class="text">def expression():
-    if Peek == &#39;-&#39;:
+<span class="kw">def</span> test_paren_expr(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (1)</span>
+<span class="st">        LOAD_CONST 2 (2)</span>
+<span class="st">        BINARY_ADD</span>
+<span class="st">        LOAD_CONST 3 (3)</span>
+<span class="st">        LOAD_CONST 4 (4)</span>
+<span class="st">        BINARY_ADD</span>
+<span class="st">        BINARY_MULTIPLY</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;(1+2)*(3+4)&quot;</span>, asm)</code></pre>
+<h2 id="another-bug-is-found"><a href="#another-bug-is-found">Another Bug is Found</a></h2>
+<p>I made my <code>expr_atom</code> function recurse by calling expression. (As opposed to calling <code>expr_addop.)</code> And when I ran the <code>test_paren_expr</code> test, I discovered a bug: the <code>expression</code> function automatically appends a ‘RETURN_VALUE’ opcode when it finishes. Oops! That will have to be moved to <code>compile,</code> instead. This is what the ‘calling conventions’ mean: that function was expected to return a value. Returning a value means leaving it on the stack. Some other piece of code has to take the value off the stack. With that change, everything works.</p>
+<h2 id="unary-precedence"><a href="#unary-precedence">Unary Precedence</a></h2>
+<p>I promised in chapter 2 that I would re-visit the issue of unary operator precedence. Before we start working on adding unary operators to our code, let’s do that.</p>
+<p>Most programming languages, inspired by the C/Algol family tree, accept unary operators at pretty much any location. You can negate any single term just by putting a ‘-’ in front of it.</p>
+<p>But there are a lot of mathematicians who feel that this is pointless. If you need to subtract a number, just subtract it! Don’t bother with adding the negative. They feel that “a - b” is easier to read, and more sensible, than “a + -b” or “-b + a”.</p>
+<p>In this case, why not move the unary from the highest precedence to the lowest? Instead of allowing a negative sign in front of every term, why not allow at most one negative sign, right at the front of an expression. Everything else can be handled by changing add to subtract, or subtract to add, or by wrapping parens around a sub-expression.</p>
+<p>My own, personal, bias is to make my expression parser act like C. But if you’re more mathematically inclined, maybe you want to speed things up by eliminating all the unary minuses except one. That would change the <code>expression</code> code to something like:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expression():
+    <span class="kw">if</span> Peek == <span class="st">&#39;-&#39;</span>:
         negated = true
-        match(&#39;-&#39;)
-    else:
+        match(<span class="st">&#39;-&#39;</span>)
+    <span class="kw">else</span>:
         negated = false
 
-    # ... regular stuff goes here ...
+    <span class="co"># ... regular stuff goes here ...</span>
 
-    if negated:
-        emit(&#39;UNARY_NEGATE&#39;)
-</code></pre>
-</div>
-
-<p>I&#39;m not going to do that. I&#39;m a stodgy old C programmer at heart, so I&#39;m
-going to follow the same path we followed back in chapter 2, and insert
-unary operators just below <code>expr_atom</code> in the precedence hierarchy:</p>
-<div class="highlight"><pre><code class="text">def expr_unary():
-    if Peek is None:
-        expected(&#39;UnaryOp or Atom&#39;)
-    if Peek in &quot;+-&quot;:
-        if Peek == &quot;+&quot;:
+    <span class="kw">if</span> negated:
+        emit(<span class="st">&#39;UNARY_NEGATE&#39;</span>)</code></pre>
+<p>I’m not going to do that. I’m a stodgy old C programmer at heart, so I’m going to follow the same path we followed back in chapter 2, and insert unary operators just below <code>expr_atom</code> in the precedence hierarchy:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expr_unary():
+    <span class="kw">if</span> Peek is <span class="ot">None</span>:
+        expected(<span class="st">&#39;UnaryOp or Atom&#39;</span>)
+    <span class="kw">if</span> Peek in <span class="st">&quot;+-&quot;</span>:
+        <span class="kw">if</span> Peek == <span class="st">&quot;+&quot;</span>:
             expr_unary_plus()
-        elif Peek == &quot;-&quot;:
+        <span class="kw">elif</span> Peek == <span class="st">&quot;-&quot;</span>:
             expr_unary_minus()
-        else:
-            expected(&#39;UnaryOp&#39;)
-    else:
+        <span class="kw">else</span>:
+            expected(<span class="st">&#39;UnaryOp&#39;</span>)
+    <span class="kw">else</span>:
         expr_atom()
 
-def expr_unary_plus():
-    match(&#39;+&#39;)
+<span class="kw">def</span> expr_unary_plus():
+    match(<span class="st">&#39;+&#39;</span>)
     expr_atom()
 
-def expr_unary_minus():
-    match(&#39;-&#39;)
+<span class="kw">def</span> expr_unary_minus():
+    match(<span class="st">&#39;-&#39;</span>)
     expr_atom()
-    emit(&#39;UNARY_NEGATIVE&#39;)
-</code></pre>
-</div>
+    emit(<span class="st">&#39;UNARY_NEGATIVE&#39;</span>)</code></pre>
+<p>All the references to <code>expr_atom()</code> in the multiple, divide, etc., handlers will have to change to refer to <code>expr_unary().</code> The test cases are simple:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_unary_minus(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (3)</span>
+<span class="st">        UNARY_NEGATIVE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;-3&quot;</span>, asm)
 
-<p>All the references to <code>expr_atom()</code> in the multiple, divide, etc.,
-handlers will have to change to refer to <code>expr_unary().</code> The test cases
-are simple:</p>
-<div class="highlight"><pre><code class="text">def test_unary_minus(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (3)
-        UNARY_NEGATIVE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;-3&quot;, asm)
-
-def test_unary_plus(self):
-    asm = &quot;&quot;&quot;
-        LOAD_CONST 1 (8)
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;+8&quot;, asm)
-</code></pre>
-</div>
-
-<p>Great! Now we have a bytecode-generating version of our parser from chapter
-2. This is a great stopping point. If you&#39;ve got things to do, now would be
-a good time to take a break.</p>
-
-<h1 id="toc_3720">Variables</h1>
-
-<p>We have an expression compiler that right now only supports constant
-expressions. The obvious next thing to add would be variables. With
-variables, we can build a desktop calculator to match the best of them! And
-also, we&#39;ll be on our way to loops and subroutines.</p>
-
-<p>Let&#39;s start off by seeing how Python does it. We&#39;ll feed the Python compiler
-three different kinds of symbols: paramters, local variables, and global
-variables.</p>
-<div class="highlight"><pre><code class="text">&gt;&gt;&gt; def f(x):
-...     y = x+1
-...     global g
+<span class="kw">def</span> test_unary_plus(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST 1 (8)</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;+8&quot;</span>, asm)</code></pre>
+<p>Great! Now we have a bytecode-generating version of our parser from chapter 2. This is a great stopping point. If you’ve got things to do, now would be a good time to take a break.</p>
+<h2 id="variables"><a href="#variables">Variables</a></h2>
+<p>We have an expression compiler that right now only supports constant expressions. The obvious next thing to add would be variables. With variables, we can build a desktop calculator to match the best of them! And also, we’ll be on our way to loops and subroutines.</p>
+<p>Let’s start off by seeing how Python does it. We’ll feed the Python compiler three different kinds of symbols: paramters, local variables, and global variables.</p>
+<pre class="sourceCode python"><code class="sourceCode python">&gt;&gt;&gt; <span class="kw">def</span> f(x):
+...     y = x<span class="dv">+1</span>
+...     <span class="kw">global</span> g
 ...     g = y+x
-...     return g
+...     <span class="kw">return</span> g
 ...
 &gt;&gt;&gt; dis.dis(f)
-  2           0 LOAD_FAST                0 (x)
-              3 LOAD_CONST               1 (1)
-              6 BINARY_ADD
-              7 STORE_FAST               1 (y)
+  <span class="dv">2</span>           <span class="dv">0</span> LOAD_FAST                <span class="dv">0</span> (x)
+              <span class="dv">3</span> LOAD_CONST               <span class="dv">1</span> (<span class="dv">1</span>)
+              <span class="dv">6</span> BINARY_ADD
+              <span class="dv">7</span> STORE_FAST               <span class="dv">1</span> (y)
 
-  4          10 LOAD_FAST                1 (y)
-             13 LOAD_FAST                0 (x)
-             16 BINARY_ADD
-             17 STORE_GLOBAL             0 (g)
+  <span class="dv">4</span>          <span class="dv">10</span> LOAD_FAST                <span class="dv">1</span> (y)
+             <span class="dv">13</span> LOAD_FAST                <span class="dv">0</span> (x)
+             <span class="dv">16</span> BINARY_ADD
+             <span class="dv">17</span> STORE_GLOBAL             <span class="dv">0</span> (g)
 
-  5          20 LOAD_GLOBAL              0 (g)
-             23 RETURN_VALUE
-</code></pre>
-</div>
-
-<p>What we can see is that Python treats accesses to parameters and accesses to
-local variables the same - it uses the same opcode, <code>LOAD_FAST,</code> for both
-parameter &#39;x&#39; and local variable &#39;y&#39;. (That&#39;s <em>definitely</em> not true in other
-environments.) And global variables are accessed using the <code>LOAD_GLOBAL</code> and
-<code>STORE_GLOBAL</code> instructions, instead of the ..._FAST ones.</p>
-
-<p>That seems pretty straightforward. Now we just have to make sure we keep our
-variables numbered correctly. The append logic in bytecode should handle
-this, except that we haven&#39;t written it yet. So I guess that&#39;s what we
-should do first. Here are the specifications for the LOAD_FAST and
-LOAD_GLOBAL opcodes, from the =dis= module page:</p>
-<div class="highlight"><pre><code class="text">LOAD_FAST(var_num)
-    Pushes a reference to the local co_varnames[var_num] onto the stack.
-
-LOAD_GLOBAL(namei)
-    Loads the global named co_names[namei] onto the stack.
-</code></pre>
-</div>
-
-<p>Having identified which list of names we should search, let&#39;s get coding!</p>
-<div class="highlight"><pre><code class="text">def _append_opcode_localvar(self, opnum, arg):
-    value_list = self.co_varnames
-    try:
-        arg_index = value_list.index(arg)
-    except ValueError:
-        arg_index = len(value_list)
-        value_list.append(arg)
-    self.append_bytecode(opnum, arg_index)
-
-def _append_opcode_name(self, opnum, arg):
-    value_list = self.co_names
-    try:
-        arg_index = value_list.index(arg)
-    except ValueError:
-        arg_index = len(value_list)
-        value_list.append(arg)
-    self.append_bytecode(opnum, arg_index)
-</code></pre>
-</div>
-
-<p>That should take care of both the ..._FAST and the ..._GLOBAL instructions
-for variable load and store. Now let&#39;s refactor the common code into a
-helper method, and fix up the constant handler already in bytecode.py.</p>
-<div class="highlight"><pre><code class="text">def _append_table_helper(self, opnum, arg, table):
-    try:
-        arg_index = table.index(arg)
-    except ValueERror:
-        arg_index = len(table)
-        table.append(arg)
-    self.append_bytecode(opnum, arg_index)
-
-def _append_opcode_localvar(self, opnum, arg):
-    self._append_table_helper(opnum, arg, self.co_varnames)
-
-def _append_opcode_name(self, opnum, arg):
-    self._append_table_helper(opnum, arg, self.co_names)
-
-def _append_opcode_const(self, opnum, arg):
-    self._append_opcode_const(self, opnum, arg, self.co_consts)
-</code></pre>
-</div>
-
-<p>With that fixed, let&#39;s talk about how we should do variables in expressions.
-I think we&#39;ll stick to global variables, at first, so we can use them
-without having to deal with assignment statements. When we parse variables
-in an expression, they are going to be read-only. We&#39;ll deal with assignment
-later.</p>
-
-<p>No assignments means that any reference we make to a variable is a read.
-That lets us write a function like expr_read_var. The function will take a
-name, and emit a reference that loads the name into the stack.</p>
-<div class="highlight"><pre><code class="text">def expr_read_var():
-    varname = get_identifier()
-    emit(&#39;LOAD_GLOBAL&#39;, varname)
-</code></pre>
-</div>
-
-<p>We can integrate this into the <code>expr_atom</code> function:
-<code>
-def expr_atom(self):
-    if Peek == &#39;(&#39;:
-        match(&#39;(&#39;)
-        expression()
-        match(&#39;)&#39;)
-    elif Peek.isalpha():
-        expr_read_var()
-    else:
-        num = int(get_number())
-        emit(&#39;LOAD_CONST&#39;, num)
-</code>
-Don&#39;t forget the test cases:
-```
-def test_read_variable(self):
-    asm = &quot;&quot;&quot;
-        LOAD_FAST 0 (a)
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;a&quot;, asm)</p>
-
-<p>def test_read_2_variables(self):
-    asm = &quot;&quot;&quot;
-        LOAD_FAST (a)
-        LOAD_CONST (1)
-        BINARY_ADD
-        LOAD_FAST (b)
-        LOAD_CONST (2)
-        BINARY_ADD
-        BINARY_MULTIPLY
-        RETURN_VALUE
-    &quot;&quot;&quot;
-    self.assertExpr(&quot;(a+1)*(b+2)&quot;, asm)
-<code>
-That is GREAT! That was pretty easy to code, and the test cases passed as
-soon as I got a typo fixed. I&#39;m feeling so good about how that went, that
-I&#39;m tempted to add some more capability. Let&#39;s add global symbols! We&#39;ll
-need to be able to differentiate between global and local variables, but
-that should be pretty easy. Here&#39;s a simple implementation:
-</code>
-def is_global(name):
-    return False</p>
-
-<p>def expr_read_var():
-    varname = get_identifier()
-    if is_global(varname):
-        emit(&#39;LOAD_GLOBAL&#39;, varname)
-    else:
-        emit(&#39;LOAD_FAST&#39;, varname)
-<code>
-That&#39;s kind of funny. But C already has a protocol for local versus global
-variables: first letter upper-case. Since our variables are only one letter
-long, we can still get away with it.
-</code>
-def is_global(name):
-    return name[0].isupper()
-<code>
-Well, it _almost_ works:
-</code>
-  File &quot;/Users/austin/git/lbac/ch04/bytecode.py&quot;, line 242, in
-<em>decode_opcode_name
-    raise NotImplementedError(&quot;not yet&quot;)
-NotImplementedError: not yet
-<code>
-Apparently, when we add something to the _encoder,_ we have to add it to the
-_decoder,_ as well! A quick fix...
-</code>
-def _decode_opcode_name(self, opnum, it, offset, extended_arg):
-    &quot;&quot;&quot;Return a tuple of (lineno, offset, (labels), opnum, opname,
-    argindex, argvalue).&quot;&quot;&quot;
-    lineno, labels, opname = self.</em>decode_common(opnum, offset)
-    argindex = self._decode_argindex(it, extended_arg)
-    argvalue = self.co_names[argindex]
-    return (lineno, offset, labels, opnum, opname, argindex, argvalue)
-```</p>
-
-<p>... and we&#39;re ready to try again! That is another one of those
-copy-and-paste functions. Only the <code>co_names</code> is any different.  That gets
-the test cases to pass. Let&#39;s try something fun in the Python interpreter:</p>
-<div class="highlight"><pre><code class="text">&gt;&gt;&gt; from ch04 import expr1
-&gt;&gt;&gt; from io import StringIO as sio
-&gt;&gt;&gt; expr1.init(inp=sio(&quot;A+1&quot;))
-&gt;&gt;&gt; co = expr1.compile()
-&gt;&gt;&gt; A = 1234
-&gt;&gt;&gt; fn = co.to_function(globals())
-&gt;&gt;&gt; fn()
-1235
-</code></pre>
-</div>
-
-<p><em>How about that?</em></p>
-
-<p>I don&#39;t think anyone can argue with that result. Our &quot;toy compiler&quot; parses
-an arithmetic expression, generates a set of Python bytecode, and with one
-more method call, we can integrate our compiled code with Python code. At
-this point, you have a simple, but full-fledged, compiler. There are no
-tricks. We are processing the input, parsing the expression, writing the
-bytecodes- it&#39;s a compiler!</p>
-
-<h1 id="toc_3721">Assignments</h1>
-
-<p>Flush with that success, let&#39;s ask the obvious question: what do we have to
-do in order to store values into variables? How do we code an assignment?</p>
-
-<p>First, though, we need to think about one of the differences between C and
-Python. In C, the assignment operators (all those operators like += and -=
-are included in the list) are <em>operators.</em> In C, you can use assignment
-anywhere you could use another operator, like addition. That means that this
-code is valid C:
-<code>C
-while (*dst++=*src++)
-    /* empty --&gt; */ ;
-</code>
-Python, on the other hand, defines an <em>assignment statement</em> that has a
-chained syntax very much like that of C. But assignment is not an operator,
-and cannot appear in the middle of an expression.</p>
-
-<p>This is a Python design decision. And like a lot of Python&#39;s design
-decisions, it is somewhat controversial. But many other languages before C
-also treated assignment as a statement rather than an operator. So this is
-one of those decisions you will have to make: is assignment a statement type
-or a binary operator?</p>
-
-<p>For this exercise, I&#39;m going to treat it as a statement. We&#39;ve been
-processing expressions from the beginning - I think it&#39;s time to branch out
-a little bit!</p>
-
-<p>One problem with assignment statements, though, is that they lead to other
-kinds of statements. Up until now, our expressions have been pure
-expressions, whose value could simply be evaluated and returned to the
-caller. When we add assignment statements to the mix, it leads to wanting to
-evaluate other expressions in the context of the assignments:
-<code>
-x=1
-y=2
-z=x+y
-</code>
-And that leads to grouping statements together. The next thing you know,
-we&#39;ll be adding curly braces!</p>
-
-<p>Let us add a new rule to our language. So far, all our expressions have fit
-on one line, and I don&#39;t see a reason to change that. Even Python has a way
-to separate one statement from another on the same line: the semicolon. So
-we will accept one or more <em>statements,</em> with the statements separated by
-semicolon characters. For example: <code>a=1;b=2;c=a+b*3</code></p>
-
-<h2 id="toc_3722">Change the Filename!</h2>
-
-<p>This is a significant change. And so before we do anything else, we should
-make a copy of our code. I&#39;ll copy my <code>expr1.py</code> code over to <code>expr2.py</code> and
-carry on from there. Obviously, the test code has to be copied as well.
-Sorry for the interruption. Carry on!</p>
-
-<p>How does this affect our grammar? Well, one thing we <em>don&#39;t</em> have to worry
-about is inserting yet another level of precedence! Instead, we&#39;ll be
-recognizing two kinds of statement. So let&#39;s write a function for that.
-<code>
-def statement():
-    if Peek.isalpha():
-        # ???
-    else:
-        expression()
-</code>
-And...here&#39;s a problem. When we are looking at a variable at the beginning
-of our &quot;statement,&quot; it&#39;s ambiguous. It could be the start of an assignment,
-like &quot;x=1&quot;. But it might also be the start of a simple expression that
-happens to use a variable, like &quot;x+3&quot;. How can we differentiate these two
-cases?</p>
-
+  <span class="dv">5</span>          <span class="dv">20</span> LOAD_GLOBAL              <span class="dv">0</span> (g)
+             <span class="dv">23</span> RETURN_VALUE</code></pre>
+<p>What we can see is that Python treats accesses to parameters and accesses to local variables the same - it uses the same opcode, <code>LOAD_FAST,</code> for both parameter ‘x’ and local variable ‘y’. (That’s <em>definitely</em> not true in other environments.) And global variables are accessed using the <code>LOAD_GLOBAL</code> and <code>STORE_GLOBAL</code> instructions, instead of the _FAST ones.</p>
+<p>That seems pretty straightforward. Now we just have to make sure we keep our variables numbered correctly. The append logic in bytecode should handle this, except that we haven’t written it yet. So I guess that’s what we should do first. Here are the specifications for the LOAD_FAST and LOAD_GLOBAL opcodes, from the <code>dis</code> module page:</p>
 <ul>
-<li><p>One thing we could do is &quot;hoist&quot; the starting tokens up into the
-<code>statement</code> function. By matching the leading variable-reference and
-then testing for the assignment operator, we could then pass it in to an
-expression or assignment matching function. Yes, this is just as
-horrible an idea as it sounds.</p>
+<li><p><code>LOAD_FAST(var_num)</code><br /> <em>Pushes a reference to the local co_varnames[var_num] onto the stack.</em></p></li>
+<li><p><code>LOAD_GLOBAL(namei)</code><br /> <em>Loads the global named co_names[namei] onto the stack.</em></p></li>
+</ul>
+<p>Having identified which list of names we should search, let’s get coding!</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> _append_opcode_localvar(<span class="ot">self</span>, opnum, arg):
+    value_list = <span class="ot">self</span>.co_varnames
+    <span class="kw">try</span>:
+        arg_index = value_list.index(arg)
+    <span class="kw">except</span> <span class="ot">ValueError</span>:
+        arg_index = <span class="dt">len</span>(value_list)
+        value_list.append(arg)
+    <span class="ot">self</span>.append_bytecode(opnum, arg_index)
 
-<p>Our problem is that we don&#39;t retain the input. We generate our bytecode
-just as we read it. That is great for speed and simplicity, but not so
-great when we want just a little bit more context to make a decision.</p></li>
-<li><p>We can steal an idea from the Python grammar itself, here, and realize
-that our <code>expression()</code> function will stop when it reaches a character
-that it cannot incorporate into an expression. So if we have an input
-like &quot;a=1&quot; and we call <code>expression</code>, it will generate the bytecode for
-reading the &#39;a&#39; variable, and then stop when it sees &#39;=&#39;, which is not
-an expected part of an expression.</p>
+<span class="kw">def</span> _append_opcode_name(<span class="ot">self</span>, opnum, arg):
+    value_list = <span class="ot">self</span>.co_names
+    <span class="kw">try</span>:
+        arg_index = value_list.index(arg)
+    <span class="kw">except</span> <span class="ot">ValueError</span>:
+        arg_index = <span class="dt">len</span>(value_list)
+        value_list.append(arg)
+    <span class="ot">self</span>.append_bytecode(opnum, arg_index)</code></pre>
+<p>That should take care of both the <code>*_FAST</code> and the <code>*_GLOBAL</code> instructions for variable load and store. Now let’s refactor the common code into a helper method, and fix up the constant handler already in <tt>bytecode.py.</tt></p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> _append_table_helper(<span class="ot">self</span>, opnum, arg, table):
+    <span class="kw">try</span>:
+        arg_index = table.index(arg)
+    <span class="kw">except</span> <span class="ot">ValueError</span>:
+        arg_index = <span class="dt">len</span>(table)
+        table.append(arg)
+    <span class="ot">self</span>.append_bytecode(opnum, arg_index)
 
-<p>We could put in a global boolean that indicated if the &#39;expression&#39; we
-had seen up to now was a valid <em>lvalue</em> (a value that can appear on the
-left side of an assignment). Then when we saw an assignment operator, we
-would know the left side was legitimate, and could process the
-assignment.</p>
+<span class="kw">def</span> _append_opcode_localvar(<span class="ot">self</span>, opnum, arg):
+    <span class="ot">self</span>._append_table_helper(opnum, arg, <span class="ot">self</span>.co_varnames)
 
-<p>Of course, there&#39;s this code to read the value already generated. Maybe
-we could emit some more code to pop the value off the stack?</p></li>
-<li><p>We could requires a special keyword, or a special name. In Pascal, the
-return value from a function is generated by assigning to a
-&quot;variable&quot; that is the name of the function. Something like this:</p>
-<div class="highlight"><pre><code class="text">function name_of_the_function;
+<span class="kw">def</span> _append_opcode_name(<span class="ot">self</span>, opnum, arg):
+    <span class="ot">self</span>._append_table_helper(opnum, arg, <span class="ot">self</span>.co_names)
+
+<span class="kw">def</span> _append_opcode_const(<span class="ot">self</span>, opnum, arg):
+    <span class="ot">self</span>._append_opcode_const(<span class="ot">self</span>, opnum, arg, <span class="ot">self</span>.co_consts)</code></pre>
+<p>With that fixed, let’s talk about how we should handle variables in expressions. I think we’ll stick to global variables, at first, so we can use them without having to deal with assignment statements. When we parse variables in an expression, they are going to be read-only. We’ll deal with assignment later.</p>
+<p>No assignments means that any reference we make to a variable is a read. That lets us write a function like expr_read_var. The function will take a name, and emit a reference that loads the name into the stack.</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expr_read_var():
+    varname = get_identifier()
+    emit(<span class="st">&#39;LOAD_GLOBAL&#39;</span>, varname)</code></pre>
+<p>We can integrate this into the <tt>expr_atom</tt> function:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> expr_atom(<span class="ot">self</span>):
+    <span class="kw">if</span> Peek == <span class="st">&#39;(&#39;</span>:
+        match(<span class="st">&#39;(&#39;</span>)
+        expression()
+        match(<span class="st">&#39;)&#39;</span>)
+    <span class="kw">elif</span> Peek.isalpha():
+        expr_read_var()
+    <span class="kw">else</span>:
+        num = <span class="dt">int</span>(get_number())
+        emit(<span class="st">&#39;LOAD_CONST&#39;</span>, num)</code></pre>
+<p>Don’t forget the test cases:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_read_variable(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_FAST 0 (a)</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;a&quot;</span>, asm)
+
+<span class="kw">def</span> test_read_2_variables(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_FAST (a)</span>
+<span class="st">        LOAD_CONST (1)</span>
+<span class="st">        BINARY_ADD</span>
+<span class="st">        LOAD_FAST (b)</span>
+<span class="st">        LOAD_CONST (2)</span>
+<span class="st">        BINARY_ADD</span>
+<span class="st">        BINARY_MULTIPLY</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;(a+1)*(b+2)&quot;</span>, asm)</code></pre>
+<p>That is <em>great!</em> That was pretty easy to code, and the test cases passed as soon as I got a typo fixed. I’m feeling so good about how that went, that I’m tempted to add some more capability. Let’s add global symbols! We’ll need to be able to differentiate between global and local variables, but that should be pretty easy. Here’s a simple implementation:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> is_global(name):
+    <span class="kw">return</span> <span class="ot">False</span>
+
+<span class="kw">def</span> expr_read_var():
+    varname = get_identifier()
+    <span class="kw">if</span> is_global(varname):
+        emit(<span class="st">&#39;LOAD_GLOBAL&#39;</span>, varname)
+    <span class="kw">else</span>:
+        emit(<span class="st">&#39;LOAD_FAST&#39;</span>, varname)</code></pre>
+<p>That’s kind of funny. But C already has a protocol for local versus global variables: first letter upper-case. Since our variables are only one letter long, we can still get away with it.</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> is_global(name):
+    <span class="kw">return</span> name[<span class="dv">0</span>].isupper()</code></pre>
+<p>Well, it <em>almost</em> works:</p>
+<pre><code>  File &quot;/Users/austin/git/lbac/ch04/bytecode.py&quot;, line 242, in
+_decode_opcode_name
+    raise NotImplementedError(&quot;not yet&quot;)
+NotImplementedError: not yet</code></pre>
+<p>Whoops! Decoding opcode names is one of those things we glossed over back in chapter 3. Apparently, when we add something to the <em>encoder,</em> we need to add it to the <em>decoder,</em> as well! A quick fix…</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> _decode_opcode_name(<span class="ot">self</span>, opnum, it, offset, extended_arg):
+    <span class="co">&quot;&quot;&quot;Return a tuple of (lineno, offset, (labels), opnum, opname,</span>
+<span class="co">    argindex, argvalue).&quot;&quot;&quot;</span>
+    lineno, labels, opname = <span class="ot">self</span>._decode_common(opnum, offset)
+    argindex = <span class="ot">self</span>._decode_argindex(it, extended_arg)
+    argvalue = <span class="ot">self</span>.co_names[argindex]
+    <span class="kw">return</span> (lineno, offset, labels, opnum, opname, argindex, argvalue)</code></pre>
+<p>… and we’re ready to try again! That is another one of those copy-and-paste functions. Only the <code>co_names</code> is any different. That gets the test cases to pass. Let’s try something fun in the Python interpreter:</p>
+<pre class="sourceCode python"><code class="sourceCode python">&gt;&gt;&gt; <span class="ch">from</span> ch04 <span class="ch">import</span> expr1
+&gt;&gt;&gt; <span class="ch">from</span> io <span class="ch">import</span> StringIO <span class="ch">as</span> sio
+&gt;&gt;&gt; expr1.init(inp=sio(<span class="st">&quot;A+1&quot;</span>))
+&gt;&gt;&gt; co = expr1.<span class="dt">compile</span>()
+&gt;&gt;&gt; A = <span class="dv">1234</span>
+&gt;&gt;&gt; fn = co.to_function(<span class="dt">globals</span>())
+&gt;&gt;&gt; fn()
+<span class="dv">1235</span></code></pre>
+<p><strong><em>How about that?</em></strong></p>
+<p>I don’t think anyone can argue with that result. Our “toy compiler” parses an arithmetic expression, generates a set of Python bytecode, and with one more method call, we can integrate our compiled code with Python code. At this point, you have a simple, but full-fledged, compiler. There are no tricks. We are processing the input, parsing the expression, writing the bytecodes- it’s a compiler! My <tt>expr1.py</tt> file is all of 230 lines long, and the <tt>cradle.py</tt> is 133 lines. Which means that we’ve written a compiler in about 100 lines of “significant” python. (I’m not counting the bytecode module, because when you write your <em>next</em> compiler you can take that module with you. Your new language is only going to replace those ~100 lines.)</p>
+<h2 id="assignments"><a href="#assignments">Assignments</a></h2>
+<p>Flush with that success, let’s ask the obvious question: what do we have to do in order to store values into variables? How do we code an assignment?</p>
+<p>First, though, we need to think about one of the differences between C and Python. In C, the assignment operators (all those operators like += and -= are included in the list) are <em>operators.</em> In C, you can use assignment anywhere you could use another operator, like addition. That means that this code is valid C:</p>
+<pre class="sourceCode c"><code class="sourceCode c"><span class="kw">while</span> (*dst++=*src++)
+    <span class="co">/*EMPTY*/</span> ;</code></pre>
+<p>Python, on the other hand, defines an <em>assignment statement</em> that has a chained syntax very much like that of C. But assignment is not an operator, and cannot appear in the middle of an expression.</p>
+<p>This is a Python design decision. And like a lot of Python’s design decisions, it is somewhat controversial. But many other languages before C also treated assignment as a statement rather than an operator. So this is one of those decisions you will have to make: is assignment a statement type or a binary operator?</p>
+<p>For this exercise, I’m going to treat it as a statement. We’ve been processing expressions from the beginning - I think it’s time to branch out a little bit!</p>
+<p>One problem with assignment statements, though, is that they lead to other kinds of statements. Up until now, our expressions have been pure expressions, whose value could simply be evaluated and returned to the caller. When we add assignment statements to the mix, it leads to wanting to evaluate other expressions in the context of the assignments. (Also, to much whinging and gnashing of teeth from the functional programming wonks.):</p>
+<pre><code>x=1
+y=2
+z=x+y</code></pre>
+<p>And that leads to grouping statements together. The next thing you know, we’ll be adding curly braces!</p>
+<p>Let us add a new rule to our language. So far, all our expressions have fit on one line, and I don’t see a reason to change that. Even Python has a way to separate one statement from another on the same line: the semicolon. So we will accept one or more <em>statements,</em> with the statements separated by semicolon characters. For example: <code>a=1;b=2;c=a+b*3</code></p>
+<h2 id="change-the-filename"><a href="#change-the-filename">Change the Filename!</a></h2>
+<p>This is a significant change. And so before we do anything else, we should make a copy of our code. I’ll copy my <tt>expr1.py</tt> code over to <tt>expr2.py</tt> and carry on from there. Obviously, the test code has to be copied as well. Sorry for the interruption. Carry on!</p>
+<p>How does this affect our grammar? Well, one thing we <em>don’t</em> have to worry about is inserting yet another level of precedence! Instead, we’ll be recognizing two kinds of statement. So let’s write a function for that.</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> statement():
+    <span class="kw">if</span> Peek.isalpha():
+        <span class="co"># ???</span>
+    <span class="kw">else</span>:
+        expression()</code></pre>
+<p>And…here’s a problem. When we are looking at a variable at the beginning of our “statement,” it’s ambiguous. It could be the start of an assignment, like “x=1”. But it might also be the start of a simple expression that happens to use a variable, like “x+3”. How can we differentiate these two cases?</p>
+<ul>
+<li><p>One thing we could do is “hoist” the starting tokens up into the <tt>statement</tt> function. By matching the leading variable-reference and then testing for the assignment operator, we could then pass it in to an expression or assignment matching function. (Yes, this is just as horrible an idea as it sounds.)</p>
+<p>Our problem is that we don’t retain the input. We generate our bytecode just as we read it. That is great for speed and simplicity, but not so great when we want just a little bit more context to make a decision.</p></li>
+<li><p>We can steal an idea from the Python grammar itself, here, and realize that our <code>expression()</code> function will stop when it reaches a character that it cannot incorporate into an expression. So if we have an input like “a=1” and we call <code>expression</code>, it will generate the bytecode for reading the ‘a’ variable, and then stop when it sees ‘=’, which is not an expected part of an expression.</p>
+<p>We could put in a global boolean that indicated if the ‘expression’ we had seen up to now was a valid <em>lvalue</em> (a value that can appear on the left side of an assignment). Then when we saw an assignment operator, we would know the left side was legitimate, and could process the assignment.</p>
+<p>Of course, there’s this code to read the value already generated. Maybe we could emit some more code to pop the value off the stack?</p></li>
+<li><p>We could requires a special keyword, or a special name. In Pascal, the return value from a function is generated by assigning to a “variable” that is the name of the function. Something like this:</p>
+<pre><code>function name_of_the_function;
 begin
     name_of_the_function := 1;
-end
-</code></pre>
-</div>
-
-<p>Or alternatively, we could put a keyword at the beginning of the line.
-That key word would &#39;predict&#39; for us that this was going to be an
-assignment statement, like &#39;let&#39;:</p>
-<div class="highlight"><pre><code class="text">let x = 1
-let y = 2
-</code></pre>
-</div>
-
-<p>Alternatively, we could use the keyword for the resulting value, and
-assume that any expression that doesn&#39;t have the keyword is an
-assignment:</p>
-<div class="highlight"><pre><code class="text">x = 1
+end</code></pre>
+<p>Or alternatively, we could put a keyword at the beginning of the line. That key word would ‘predict’ for us that this was going to be an assignment statement, like ‘let’:</p>
+<pre><code>let x = 1
+let y = 2</code></pre>
+<p>Alternatively, we could use the keyword for the resulting value, and assume that any expression that doesn’t have the keyword is an assignment:</p>
+<pre><code>x = 1
 y = 2
-return x + y
-</code></pre>
-</div></li>
-<li><p>We could <em>edit</em> the bytecode we have generated: in conjunction with the
-<code>is_lvalue</code> idea above, we could simply go back and remove the
-bytecode to replace the LOAD with a STORE.</p></li>
-<li><p>We could start building a &quot;tree&quot; while parsing our expressions, and not
-actually generate any bytecode until we had a good idea what was
-happening. This is a good idea, but I&#39;m going to put it off for a bunch
-of chapters.</p></li>
+return x + y</code></pre></li>
+<li><p>We could <em>edit</em> the bytecode we have generated: in conjunction with the <code>is_lvalue</code> idea above, we could simply go back and remove the bytecode to replace the LOAD with a STORE.</p></li>
+<li><p>We could start building a “tree” while parsing our expressions, and not actually generate any bytecode until we had a good idea what was happening. This is a good idea, but I’m going to put it off for a bunch of chapters.</p></li>
 </ul>
-
-<p>You&#39;ve probably figured out that I&#39;m inclined to go with something that
-looks like C where possible. So I&#39;m going to ignore the possibilities of the
-&#39;let&#39; keyword. Instead, let&#39;s adopt the <code>return</code> keyword, or <code>z</code> for short.
-(I want to keep &#39;r&#39; available for the chapter on loops.)</p>
-
-<p>This means that any statement except the last one should be an assignment.
-That will make the coding simpler!
-```
-def compile():
-    while Peek is not None and Peek != &#39;z&#39;:
+<p>You’ve probably figured out that I’m inclined to go with something that looks like C where possible. So I’m going to ignore the possibilities of the ‘let’ keyword. Instead, let’s adopt the <code>return</code> keyword, or <code>z</code> for short. (I want to keep ‘r’ available for the chapter on loops.)</p>
+<p>This means that any statement except the last one should be an assignment. That will make the coding simpler!</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> <span class="dt">compile</span>():
+    <span class="kw">while</span> Peek is not <span class="ot">None</span> and Peek != <span class="st">&#39;z&#39;</span>:
         stmt_assignment()
-        match(&#39;;&#39;)</p>
-<div class="highlight"><pre><code class="text">if Peek is None:
-    expected(&#39;Return Expression&#39;)
-stmt_return()
-return _Code
-</code></pre>
-</div>
+        match(<span class="st">&#39;;&#39;</span>)
 
-<p>def emit_store_var(varname):
-    opcode = &#39;STORE_GLOBAL&#39; if is_global(varname) else &#39;STORE_FAST&#39;
-    emit(opcode, varname)</p>
+    <span class="kw">if</span> Peek is <span class="ot">None</span>:
+        expected(<span class="st">&#39;Return Expression&#39;</span>)
+    stmt_return()
+    <span class="kw">return</span> _Code
 
-<p>def stmt_assignment():
+<span class="kw">def</span> emit_store_var(varname):
+    opcode = <span class="st">&#39;STORE_GLOBAL&#39;</span> <span class="kw">if</span> is_global(varname) <span class="kw">else</span> <span class="st">&#39;STORE_FAST&#39;</span>
+    emit(opcode, varname)
+
+<span class="kw">def</span> stmt_assignment():
     lvalue = get_identifier()
-    match(&#39;=&#39;)
+    match(<span class="st">&#39;=&#39;</span>)
     expression()
-    emit_store_var(lvalue)</p>
+    emit_store_var(lvalue)
 
-<p>def stmt_return():
-    match(&#39;z&#39;)
+<span class="kw">def</span> stmt_return():
+    match(<span class="st">&#39;z&#39;</span>)
     expression()
-    emit(&#39;RETURN_VALUE&#39;)
-```
-Well, <em>that</em> wasn&#39;t very hard at all! And it&#39;s because we spent a little
-time to plan. Trying to implement assignment as an operator would have been
-a whole different story with the way our code is currently shaped.</p>
+    emit(<span class="st">&#39;RETURN_VALUE&#39;</span>)</code></pre>
+<p>Well, <em>that</em> wasn’t very hard at all! And it’s because we spent a little time to plan. Trying to implement assignment as an operator would have been a whole different story with the way our code is currently shaped.</p>
+<p>Here are some tests:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_assignment(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST (7)</span>
+<span class="st">        STORE_FAST (x)</span>
+<span class="st">        LOAD_CONST (0)</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;x=7;z0&quot;</span>, asm)
 
-<h1 id="toc_3723">Functions</h1>
-
-<p>Functions in Python seem like simple things. But there is a pretty wide
-amount of variety in how things are handled, depend on context. Let&#39;s look
-at some examples:</p>
-
+<span class="kw">def</span> test_return_var(<span class="ot">self</span>):
+    asm = <span class="st">&quot;&quot;&quot;</span>
+<span class="st">        LOAD_CONST (1)</span>
+<span class="st">        STORE_FAST (x)</span>
+<span class="st">        LOAD_FAST (x)</span>
+<span class="st">        RETURN_VALUE</span>
+<span class="st">    &quot;&quot;&quot;</span>
+    <span class="ot">self</span>.assertExpr(<span class="st">&quot;x=1;zx&quot;</span>, asm)</code></pre>
+<p>Once those tests are working, let’s move on to …</p>
+<h2 id="functions"><a href="#functions">Functions</a></h2>
+<p>Functions in Python seem like simple things. But there is a lot of variety in how things are handled, depending on context. Let’s look at some examples:</p>
 <ul>
-<li>There are <em>builtin</em> functions that call C code directly, instead of
-bytecode.</li>
-<li>Global functions are what most people thing of: a <code>def func():</code> appears
-somewhere in a module, and it is called in other places.</li>
-<li>Method calls, which look like <code>obj.meth(args),</code> eventually resolve down
-to function calls.</li>
-<li>Functions can be nested inside classes (see above) or inside other
-functions. Nested functions aren&#39;t visible everywhere.</li>
-<li>Functions can also be <em>closures</em> if they make reference to a free variable
-that isn&#39;t global.</li>
+<li>There are <em>builtin</em> functions that call C code directly, instead of bytecode.</li>
+<li>Global functions are what most people thing of: a <code>def func():</code> appears somewhere in a module, and it is called in other places.</li>
+<li>Functions can be imported from a different module and renamed, so that the name they are known by is different from one place to another.</li>
+<li>Method calls, which look like <code>obj.meth(args),</code> eventually resolve down to function calls.</li>
+<li>Functions can be nested inside classes (see above) or inside other functions. Nested functions aren’t visible everywhere.</li>
+<li>Functions can also be <em>closures</em> if they make reference to a free variable that isn’t global.</li>
 <li>Functions can be <em>generators</em> or <em>coroutines.</em></li>
-<li>Functions can be imported from a different module.</li>
 </ul>
-
-<p>Whew! That&#39;s a lot of different things to be hiding behind a set of
-parentheses! Let&#39;s simplify things as much as we can, and stick to plain old
-global-scope bytecode functions. I think it&#39;s time to do an experiment with
-the Python interpreter:</p>
-<div class="highlight"><pre><code class="text">&gt;&gt;&gt; def g():
+<p>Whew! That’s a lot of different things to be hiding behind a set of parentheses! Let’s simplify things as much as we can, and stick to plain old global-scope bytecode functions. I think it’s time to do an experiment with the Python interpreter:</p>
+<pre><code>&gt;&gt;&gt; def g():
 ...     return 1
 ...
 &gt;&gt;&gt; def f():
@@ -1084,28 +695,13 @@ the Python interpreter:</p>
              25 CALL_FUNCTION            1 (1 positional, 0 keyword pair)
              28 POP_TOP
              29 LOAD_CONST               0 (None)
-             32 RETURN_VALUE
-</code></pre>
-</div>
-
-<p>Looking at the first three lines of the disassembly, we can see the name
-lookup, the call, and the assignment of hte result into &#39;x&#39;. That doesn&#39;t
-seem too hard for us to model.</p>
-
-<p>Looking further down, we see the call to print with one argument generates a
-<code>LOAD_CONST</code> opcode and a <code>POP_TOP</code> to handle the fact that the return
-value is being thrown away. Again, not too much to handle.</p>
-
-<p>What we know so far is that the function being called goes onto the stack
-first. Then the arguments go on the stack. We don&#39;t know in what order, but
-I&#39;m guessing left to right. We&#39;ll check in a minute. Then the call is made.</p>
-
-<p>Inside the function, the callee apparently cleans up the stack, or maybe the
-call or return opcodes handle that. The callee returns a single value, which
-is the result of the function.</p>
-
-<p>Let&#39;s look at the order of arguments:</p>
-<div class="highlight"><pre><code class="text">&gt;&gt;&gt; def f():
+             32 RETURN_VALUE</code></pre>
+<p>Looking at the first three lines of the disassembly, we can see the name lookup, the call, and the assignment of hte result into ‘x’. That doesn’t seem too hard for us to model.</p>
+<p>Looking further down, we see the call to print with one argument generates a <tt>LOAD_CONST</tt> opcode and a <tt>POP_TOP</tt> to handle the fact that the return value is being thrown away. Again, not too much to handle.</p>
+<p>What we know so far is that the function being called goes onto the stack first. Then the arguments go on the stack. We don’t know in what order, but I’m guessing left to right. We’ll check in a minute. Then the call is made.</p>
+<p>Inside the function, the callee apparently cleans up the stack, or maybe the call or return opcodes handle that. The callee returns a single value, which is the result of the function.</p>
+<p>Let’s look at the order of arguments:</p>
+<pre><code>&gt;&gt;&gt; def f():
 ...     g(1,2,3)
 ...
 &gt;&gt;&gt; da(f)
@@ -1116,42 +712,119 @@ is the result of the function.</p>
              12 CALL_FUNCTION            3 (3 positional, 0 keyword pair)
              15 POP_TOP
              16 LOAD_CONST               0 (None)
-             19 RETURN_VALUE
-</code></pre>
-</div>
+             19 RETURN_VALUE</code></pre>
+<p>Yep, it’s left-to-right. The arguments 1,2,3 go on with the leftmost first, the rightmost last on the stack. Let’s look at how we could write the code to generate this.</p>
+<p>First, we would have to recognize a function call. That should be straight-forward: a name followed by an opening parenthesis like ‘f(’. When we see that, we know it’s a function call. (As opposed to a paren followed by a name, like ‘(f’, which is just a nested expression.)</p>
+<p>Once we have a parenthesis, we need to match opening and closing parens until we find our corresponding closing paren. The individual parameter values will be nested expressions, separated by commas. This should handle the balancing of parentheses.</p>
+<p>Where does a function call fit in the precedence chain? Well, according to C it is pretty much the highest priority operation. The <em>postfix</em> operators, which includes x++, x–, a[i], and f(x), are higher precedene than the unary prefix operators. (This makes sense: -f(x) is negating the result of the call, not calling a negated function.)</p>
+<p>We <em>could</em> try to follow the C route, of allowing any arithmetic expression to be treated as a pointer to a function. But I don’t think we’re ready for that just yet. So instead, let’s admit that a function has a name, and let’s insert function call recognition in with name recognition. With our new <tt>expr_atom</tt> function, that will be down in <tt>expr_read_var.</tt></p>
+<p>Let’s take a look at the documentation for the opcode, from the online manual:</p>
+<ul>
+<li><code>CALL_FUNCTION(argc)</code><br /> *Calls a function. The low byte of argc indicates the number of positional parameters, the high byte the number of keyword parameters. On the stack, the opcode finds the keyword parameters first. For each keyword argument, the value is on top of the key. Below the keyword parameters, the positional parameters are on the stack, with the right-most parameter on top. Below the parameters, the function object to call is on the stack. Pops all function arguments, and the function itself off the stack, and pushes the return value.</li>
+</ul>
+<p>That low-byte/high-byte encoding seems a little funny, but let’s give it a try:</p>
+<pre><code>def expr_read_var():
+    varname = get_identifier()
+    if Peek == &#39;(&#39;:
+        match(&#39;(&#39;)
+        emit(&#39;LOAD_GLOBAL&#39;, varname)
+        pos_args = kw_args = 0
+        match(&#39;)&#39;)
+        if pos_args &gt;= 256:
+            abort(&quot;Too many positional arguments (%d) in call to &#39;%s&#39;&quot; % (pos_args, varname))
+        if kw_args &gt;= 256:
+            abort(&quot;Too many keyword arguments (%d) in call to &#39;%s&#39;&quot; % (kw_args, varname))
+        emit(&#39;CALL_FUNCTION&#39;, pos_args | (kw_args &lt;&lt; 8))
+    elif is_global(varname):
+        emit(&#39;LOAD_GLOBAL&#39;, varname)
+    else:
+        emit(&#39;LOAD_FAST&#39;, varname)</code></pre>
+<p>Right now, that function doesn’t match any arguments. But it <em>does</em> match the open and closing parens, and it does emit a valid call. It should actually work. Let’s test it!</p>
+<p>First, we’ll need to extend the <tt>bytecode</tt> library to support the <tt>CALL_FUNCTION</tt> opcode:</p>
+<pre><code></code></pre>
+<p>Next, we’ll need to make some changes to the helper methods:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> assertExpr(<span class="ot">self</span>, text, asm):
+    co = <span class="ot">self</span>.compileExpr(text)
+    instructions_match(co, asm)
 
-<p>Yep, it&#39;s left-to-right. The arguments 1,2,3 go on with the leftmost first,
-the rightmost last on the stack. Let&#39;s look at how we could write the code
-to generate this.</p>
+<span class="kw">def</span> compileExpr(<span class="ot">self</span>, text):
+    compiler.init(inp=StringIO(text))
+    co = compiler.<span class="dt">compile</span>()
+    <span class="kw">return</span> co</code></pre>
+<p>Next, we’ll add a global function, with a single-letter name:</p>
+<pre class="sourceCode python"><code class="sourceCode python">Flag = <span class="dv">0</span>
+<span class="kw">def</span> f():
+    <span class="kw">global</span> Flag
+    Flag += <span class="dv">1</span></code></pre>
+<p>Now let’s add a test case:</p>
+<pre class="sourceCode python"><code class="sourceCode python"><span class="kw">def</span> test_fncall_noargs(<span class="ot">self</span>):
+    co = <span class="ot">self</span>.compileExpr(<span class="st">&quot;zf()&quot;</span>)
+    <span class="kw">global</span> Flag
+    Flag = <span class="dv">0</span>
+    <span class="ot">self</span>.assertEqual(<span class="dv">0</span>, Flag)
+    co()
+    <span class="ot">self</span>.assertEqual(<span class="dv">1</span>, Flag)</code></pre>
+<p>Unfortunately, when we run it we are reminded that things could go a little smoother:</p>
+<pre><code>TypeError: &#39;CodeObject&#39; object is not callable</code></pre>
+<p>Let’s fix this. Add a <tt><strong>call</strong></tt> method to the <tt>bytecode</tt> library to handle this case, and we’ll move on:</p>
+<pre><code>def __call__(self, *args):
+    frame = inspect.stack()[1][0]
+    globs = frame.f_globals
+    fn = self.to_function(globs=globs)
+    return fn(*args)</code></pre>
+<p>Now the tests pass, and we can work on parsing out the arguments to the function. We’ll use comma to separate the arguments:</p>
+<pre><code>def g(x):
+    global Flag
+    Flag = x
 
-<p>First, we would have to recognize a function call. That should be
-straight-forward: a name followed by an opening parenthesis like &#39;f(&#39;. When
-we see that, we know it&#39;s a function call. (As opposed to a paren followed
-by a name, like &#39;(f&#39;, which is just a nested expression.)</p>
+def h(x,y):
+    global Flag
+    Flag = x+y
 
-<p>Once we have a parenthesis, we need to match opening and closing parens
-until we find our corresponding closing paren. The individual parameter
-values will be nested expressions, separated by commas. This should handle
-the balancing of parentheses.</p>
+def test_fncall_1arg(self):
+    co = self.compileExpr(&quot;zg(3)&quot;)
+    global Flag
+    Flag = 0
+    self.assertEqual(0, Flag)
+    co()
+    self.assertEqual(123, Flag)
 
-<p>Where does a function call fit in the precedence chain? Well, according to C
-it is pretty much the highest priority operation. The <em>postfix</em> operators,
-which includes x++, x--, a[i], and f(x), are higher precedene than the unary
-prefix operators. (This makes sense: -f(x) is negating the result of the
-call, not calling a negated function.)</p>
+def test_fncall_2args(self):
+    co = self.compileExpr(&quot;zg(5,7)&quot;)
+    global Flag
+    Flag = 0
+    self.assertEqual(0, Flag)
+    co()
+    self.assertEqual(5+7, Flag)</code></pre>
+<p>And here’s a try at it:</p>
+<pre><code>def expr_read_var():
+    varname = get_identifier()
+    if Peek == &#39;(&#39;:
+        match(&#39;(&#39;)
+        emit(&#39;LOAD_GLOBAL&#39;, varname)
+        pos_args = kw_args = 0
+        while Peek is not None and Peek != &#39;)&#39;:
+            if pos_args != 0:
+                match(&#39;,&#39;)
+            expression()
+            pos_args += 1
+        match(&#39;)&#39;)
+        if pos_args &gt;= 256:
+            abort(&quot;Too many positional arguments (%d) in call to &#39;%s&#39;&quot; % (pos_args, varname))
+        if kw_args &gt;= 256:
+            abort(&quot;Too many keyword arguments (%d) in call to &#39;%s&#39;&quot; % (kw_args, varname))
+        emit(&#39;CALL_FUNCTION&#39;, pos_args | (kw_args &lt;&lt; 8))
+    elif is_global(varname):
+        emit(&#39;LOAD_GLOBAL&#39;, varname)
+    else:
+        emit(&#39;LOAD_FAST&#39;, varname)</code></pre>
+<p>And it works! Awesome!</p>
+<p>All we need is string constants, and multi-character names, and I’ll be able to <code>print('Hello, world!')</code>. I can’t wait.</p>
+<h1 id="multi-character-tokens"><a href="#multi-character-tokens">Multi-Character Tokens</a></h1>
+<h1 id="white-space"><a href="#white-space">White Space</a></h1>
+<!---
+vim: set et fileencoding=utf8 sts=4 sw=4 ts=4 tw=76:
+-->
 
-<p>We <em>could</em> try to follow the C route, of allowing any arithmetic expression
-to be treated as a pointer to a function. But I don&#39;t think we&#39;re ready for
-that just yet. So instead, let&#39;s admit that a function has a name, and let&#39;s
-insert function call recognition in with name recognition.</p>
-
-<h1 id="toc_3724">Multi-Character Tokens</h1>
-
-<h1 id="toc_3725">White Space</h1>
-
-  </div>
-</div>
-
-    </section>
-  </body>
+</body>
 </html>

@@ -1,7 +1,3 @@
----
-layout: chapter
-title: Bytecode Generation
----
 
 Bytecode Generation
 ===================

@@ -16,12 +16,29 @@ import unittest
 from ch04 import expr2 as compiler
 from ch04.bytecode import instructions_match
 
+Flag = 0
+def f():
+    global Flag
+    Flag += 1
+
+def g(x):
+    global Flag
+    Flag = x
+
+def h(x,y):
+    global Flag
+    Flag = x+y
+
 class TestCompiler(unittest.TestCase):
 
     def assertExpr(self, text, asm):
+        co = self.compileExpr(text)
+        instructions_match(co, asm)
+
+    def compileExpr(self, text):
         compiler.init(inp=StringIO(text))
         co = compiler.compile()
-        instructions_match(co, asm)
+        return co
 
     def test_assignment(self):
         asm = """
@@ -40,6 +57,30 @@ class TestCompiler(unittest.TestCase):
             RETURN_VALUE
         """
         self.assertExpr("x=1;zx", asm)
+
+    def test_fncall_noargs(self):
+        co = self.compileExpr("zf()")
+        global Flag
+        Flag = 0
+        self.assertEqual(0, Flag)
+        co()
+        self.assertEqual(1, Flag)
+
+    def test_fncall_1arg(self):
+        co = self.compileExpr("zg(3)")
+        global Flag
+        Flag = 0
+        self.assertEqual(0, Flag)
+        co()
+        self.assertEqual(123, Flag)
+
+    def test_fncall_2args(self):
+        co = self.compileExpr("zg(5,7)")
+        global Flag
+        Flag = 0
+        self.assertEqual(0, Flag)
+        co()
+        self.assertEqual(5+7, Flag)
 
 if __name__ == '__main__':
     unittest.main()

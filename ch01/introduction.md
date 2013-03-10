@@ -1,7 +1,3 @@
----
-layout: chapter
-title: Introduction
----
 Introduction
 ============
 
@@ -130,6 +126,7 @@ Either way, fire up your development environment and run some code. Make
 sure that some version of the cradle actually works, and then get ready
 for the next chapter. It'll be about expression parsing. Because the
 beginning is always about expression parsing.
-<!---
-vim: set et fileencoding=utf8 sts=4 sw=4 ts=4 tw=76:
+
+<!--
+vim set: et sts=4 sw=4 ts=4 tw=76
 -->

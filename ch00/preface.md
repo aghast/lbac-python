@@ -1,7 +1,3 @@
----
-layout: chapter
-title: "Preface: 25 years later"
----
 
 Preface: 25 years later
 =======================
@@ -77,3 +73,7 @@ and since it can be really hard to guess where a failure is coming from.
 So there will be tests, and many of them will be written in advance. I
 expect more of them will be written afterwards - I'll want to set
 regression barriers, too.
+
+<!--
+vim set: et sts=4 sw=4 ts=4 tw=76
+-->
