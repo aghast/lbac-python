@@ -34,3 +34,12 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+# Sphinx
+_build/
+
+# Jekyll
+_cache/
+_logs/
+
+toc.mdi

@@ -1,21 +1,19 @@
-.. vim: set tw=76
 
 Preface: 25 years later
 =======================
 
-I don't know exactly when he started composing the series, but between July of
-1988 and May of 1995 Jack Crenshaw published a series of articles titled
-:title:`Let's Build a Compiler!`
+I don't know exactly when he started composing the series, but between
+July of 1988 and May of 1995 Jack Crenshaw published a series of
+articles titled Let's Build a Compiler! That series remains perhaps the
+best available reference for codes interested in the process of
+developing a *Language Processor* such as a syntax hilighter, SLOC
+counter, static analyzer, interpreter or compiler.
 
-That series remains perhaps the best available reference for codes interested
-in the process of developing a :term:`*Language Processor*` such as a
-syntax hilighter, SLOC counter, static analyzer, interpreter or compiler.
-
-Because of the enduring quality of the series, and because I find myself (25
-years later) sharing a lot of interests in common with the Jack Crenshaw of
-1988, I have decided to write my own compiler. And document the process. To
-make things a little easier on everyone involved, I won't use Borland Turbo
-Pascal. Instead, I have decided to use Python 3.
+Because of the enduring quality of the series, and because I find myself
+(25 years later) sharing a lot of interests in common with the Jack
+Crenshaw of 1988, I have decided to write my own compiler. And document
+the process. To make things a little easier on everyone involved, I
+won't use Borland Turbo Pascal. Instead, I have decided to use Python 3.
 
 Scope
 -----
@@ -41,19 +39,19 @@ From a very general perspective, a *Language Processor* does two things:
 first it reads in one or more files in a language and builds up some
 kind of understanding of the code; and second it uses the understanding
 built up in the first part to perform whatever tasks are requested of
-it. 
+it.
 
-Consider a syntax highlighter: a highlighter doesn't really
-need to know about the language, except to identify the boundaries beween
-words. Once it knows that a string of characters is an identifier- and
-not, say, a key word like 'if' or 'while'- the 'understanding' part is pretty
-much done. "Color this one blue!"
+Consider a syntax highlighter: a highlighter doesn't really need to know
+about the language, except to identify the boundaries beween words. Once
+it knows that a string of characters is an identifier- and not, say, a
+key word like 'if' or 'while'- the 'understanding' part is pretty much
+done. "Color this one blue!"
 
 My objective, as stated above, is to build a 'real compiler'. Not a
 syntax highlighter, but a program that will take source code in, and
 write some kind of executable out. I'm willing to settle for
 *translating* the code to a much lower level (writing out assembly files
-instead of compiled objects) but that's about it. 
+instead of compiled objects) but that's about it.
 
 The structure, then, will be "the full monty". If you've dabbled with
 compilers before, you'll recognize the stages: lexer, parser, tree,
@@ -67,8 +65,7 @@ There is going to be some give and take - in fact, a lot of it.
 Hopefully it will help increase my (and your) understanding, and not
 just piss you off.
 
-Approach
-~~~~~~~~
+### Approach
 
 In all of my reading, I haven't found much test-driven work around
 compilation. That surprises me, since compilers are complicated systems,
@@ -76,3 +73,7 @@ and since it can be really hard to guess where a failure is coming from.
 So there will be tests, and many of them will be written in advance. I
 expect more of them will be written afterwards - I'll want to set
 regression barriers, too.
+
+<!--
+vim set: et sts=4 sw=4 ts=4 tw=76
+-->
