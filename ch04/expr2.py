@@ -189,7 +189,19 @@ def expr_multiply():
 
 def expr_read_var():
     varname = get_identifier()
-    if is_global(varname):
+    if Peek == '(':
+        match('(')
+        emit('LOAD_GLOBAL', varname)
+        pos_args = kw_args = 0
+        match(')')
+        if pos_args >= 256:
+            abort("Too many positional arguments (%d) in call to '%s'"
+                    % (pos_args, varname))
+        if kw_args >= 256:
+            abort("Too many keyword arguments (%d) in call to '%s'"
+                    % (kw_args, varname))
+        emit('CALL_FUNCTION', pos_args | (kw_args << 8))
+    elif is_global(varname):
         emit('LOAD_GLOBAL', varname)
     else:
         emit('LOAD_FAST', varname)
